@@ -60,6 +60,15 @@ function stemDisplayOrder(stemName: string): number {
   return 1000 + (sum % 1000)
 }
 
+export function sortStemNames(stems: readonly string[]): string[] {
+  return [...new Set(stems)].sort((a, b) => {
+    const orderA = stemDisplayOrder(a)
+    const orderB = stemDisplayOrder(b)
+    if (orderA !== orderB) return orderA - orderB
+    return a.localeCompare(b)
+  })
+}
+
 export function compareStemKinds(a: string, b: string): number {
   const nameA = stemNameFromKind(a)
   const nameB = stemNameFromKind(b)

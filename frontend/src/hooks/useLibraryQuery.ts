@@ -1,7 +1,12 @@
 import { useMemo } from 'react'
 
 import { isActiveRunStatus } from '../components/runStatus'
-import { applySongBrowse, trackStageSummary } from '../components/trackListView'
+import {
+  applySongBrowse,
+  isTrackExportable,
+  isTrackStemmable,
+  trackStageSummary,
+} from '../components/trackListView'
 import type { SongsFilter, SongsView } from '../routes'
 import type { QueueRunEntry, TrackSummary } from '../types'
 
@@ -12,7 +17,6 @@ type LibraryQuery = {
   browseTrackIds: Set<string>
   activeRuns: QueueRunEntry[]
   failedRuns: QueueRunEntry[]
-  filterCounts: { 'needs-stems': number; processing: number; attention: number; ready: number }
   filterTabs: FilterTab[]
   stemmableIds: Set<string>
   exportableIds: Set<string>
@@ -50,7 +54,7 @@ export function useLibraryQuery(
       if (stage.key === 'needs-stems') counts['needs-stems']++
       else if (stage.key === 'processing') counts.processing++
       else if (stage.key === 'needs-attention') counts.attention++
-      else if (stage.key === 'ready' || stage.key === 'final') counts.ready++
+      else if (isTrackExportable(track)) counts.ready++
     }
     return counts
   }, [tracks])
@@ -72,9 +76,8 @@ export function useLibraryQuery(
     const exportable = new Set<string>()
     const stemmable = new Set<string>()
     for (const track of browseTracks) {
-      const stage = trackStageSummary(track)
-      if (stage.key === 'ready' || stage.key === 'final') exportable.add(track.id)
-      if (stage.key !== 'processing') stemmable.add(track.id)
+      if (isTrackExportable(track)) exportable.add(track.id)
+      if (isTrackStemmable(track)) stemmable.add(track.id)
     }
     return { exportableIds: exportable, stemmableIds: stemmable }
   }, [browseTracks])
@@ -84,7 +87,6 @@ export function useLibraryQuery(
     browseTrackIds,
     activeRuns,
     failedRuns,
-    filterCounts,
     filterTabs,
     stemmableIds,
     exportableIds,

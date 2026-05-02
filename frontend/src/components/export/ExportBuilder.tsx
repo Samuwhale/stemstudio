@@ -18,6 +18,7 @@ import { formatSize } from '../metrics'
 import { Spinner } from '../feedback/Spinner'
 
 type Format = 'mp3' | 'wav'
+const EMPTY_RUN_IDS: Record<string, string> = {}
 
 type ExportBuilderProps = {
   selectedTrackIds: string[]
@@ -65,7 +66,23 @@ function packagingSummary(packaging: ExportPackagingMode): string {
   return 'Each song gets its own folder in the zip.'
 }
 
-export function ExportBuilder({
+function buildRunIdsKey(runIds: Record<string, string> | undefined): string {
+  return Object.entries(runIds ?? {})
+    .sort()
+    .map(([trackId, runId]) => `${trackId}=${runId}`)
+    .join('|')
+}
+
+export function ExportBuilder(props: ExportBuilderProps) {
+  const variant = props.variant ?? 'full'
+  const selectedTrackIdsKey = props.selectedTrackIds.join(',')
+  const runIdsKey = buildRunIdsKey(props.runIds)
+  const resetKey = `${variant}|${selectedTrackIdsKey}|${runIdsKey}|${props.defaultBitrate}`
+
+  return <ExportBuilderContent key={resetKey} {...props} variant={variant} />
+}
+
+function ExportBuilderContent({
   selectedTrackIds,
   defaultBitrate,
   runIds,
@@ -74,7 +91,7 @@ export function ExportBuilder({
   footerAction,
   variant = 'full',
 }: ExportBuilderProps) {
-  const resolvedRunIds = useMemo(() => runIds ?? {}, [runIds])
+  const resolvedRunIds = useMemo(() => runIds ?? EMPTY_RUN_IDS, [runIds])
   const [loadedStemOptions, setLoadedStemOptions] = useState<{
     key: string
     stems: ExportStemOption[]
@@ -83,6 +100,7 @@ export function ExportBuilder({
   const [includeMix, setIncludeMix] = useState(true)
   const [selectedStems, setSelectedStems] = useState<Set<string>>(() => new Set())
   const [includeSource, setIncludeSource] = useState(false)
+  const [showArtifactDetails, setShowArtifactDetails] = useState(false)
   const [mixFmt, setMixFmt] = useState<Format>('mp3')
   const [stemFmt, setStemFmt] = useState<Format>('wav')
   const [packaging, setPackaging] = useState<ExportPackagingMode>('per-song-folders')
@@ -101,15 +119,9 @@ export function ExportBuilder({
   }, [result])
 
   const selectedTrackIdsKey = useMemo(() => selectedTrackIds.join(','), [selectedTrackIds])
-  const runIdsKey = useMemo(
-    () =>
-      Object.entries(resolvedRunIds)
-        .sort()
-        .map(([trackId, runId]) => `${trackId}=${runId}`)
-        .join('|'),
-    [resolvedRunIds],
-  )
+  const runIdsKey = useMemo(() => buildRunIdsKey(runIds), [runIds])
   const stemOptionsKey = `${selectedTrackIdsKey}|${runIdsKey}`
+
   const stemOptions = useMemo(
     () => (loadedStemOptions?.key === stemOptionsKey ? loadedStemOptions.stems : []),
     [loadedStemOptions, stemOptionsKey],
@@ -217,21 +229,41 @@ export function ExportBuilder({
     }
   }
 
+  function useCurrentMixOnly() {
+    setIncludeMix(true)
+    setSelectedStems(new Set())
+    setIncludeSource(false)
+    setShowArtifactDetails(false)
+  }
+
   const includedCount = plan?.included_track_count ?? 0
   const skippedCount = plan?.skipped_track_count ?? 0
   const totalBytes = plan?.total_bytes ?? 0
+  const exportingOnlyCurrentMix = includeMix && !hasSelectedStems && !includeSource
+  const exportButtonLabel = exportingOnlyCurrentMix ? 'Export audio mix' : 'Export selected audio'
 
   const blockingReason = !selectedTrackIds.length
     ? 'Choose at least one track to export.'
     : mp3Requested && !bitrateValid
       ? MP3_BITRATE_HINT
     : !artifactList.length
-      ? 'Pick at least one thing to include.'
+      ? 'Pick at least one audio file to include.'
+      : planLoading
+        ? 'Checking export files…'
       : planError
         ? planError
         : plan && includedCount === 0
           ? 'None of the selected tracks have the files required for this export.'
           : null
+  const exportDisabled =
+    busy ||
+    !artifactList.length ||
+    !selectedTrackIds.length ||
+    planLoading ||
+    !!planError ||
+    (canPlan && plan === null) ||
+    (plan !== null && includedCount === 0) ||
+    (mp3Requested && !bitrateValid)
 
   if (result) {
     return (
@@ -283,47 +315,88 @@ export function ExportBuilder({
         <IncludeRow
           checked={includeMix}
           onToggle={() => setIncludeMix((value) => !value)}
-          label="Mix"
-          hint="Rendered file using each track's saved balance."
+          label="Audio mix"
+          hint="One playable file using the saved levels and mutes."
           format={mixFmt}
           onFormatChange={setMixFmt}
         />
-        {stemsLoading || stemLookupError || !hasStems ? (
-          <StemStatusRow
-            hint={
-              stemsLoading
-                ? 'Looking up available stems…'
-                : stemLookupError
-                  ? 'Could not load stem availability.'
-                  : 'No separated stems available for this selection.'
-            }
-          />
-        ) : (
-          stemOptions.map((option) => (
+        {!showArtifactDetails ? (
+          <button
+            type="button"
+            className="export-disclosure-row"
+            onClick={() => setShowArtifactDetails(true)}
+          >
+            <strong>Include more files</strong>
+            <span>Export starts with the playable mix. Add separated stems or the original song if needed.</span>
+          </button>
+        ) : null}
+        {showArtifactDetails ? (
+          <>
+            <button
+              type="button"
+              className="export-disclosure-row export-disclosure-row-open"
+              onClick={useCurrentMixOnly}
+            >
+              <strong>Use audio mix only</strong>
+              <span>Keep one playable file using the saved levels and mutes.</span>
+            </button>
+            {stemsLoading || stemLookupError || !hasStems ? (
+              <StemStatusRow
+                hint={
+                  stemsLoading
+                    ? 'Looking up available stems…'
+                    : stemLookupError
+                      ? 'Could not load stem availability.'
+                      : 'No separated stems available for this selection.'
+                }
+              />
+            ) : (
+              stemOptions.map((option) => (
+                <IncludeRow
+                  key={option.name}
+                  checked={selectedStems.has(option.name)}
+                  onToggle={() =>
+                    setSelectedStems((current) => {
+                      const next = new Set(current)
+                      if (next.has(option.name)) next.delete(option.name)
+                      else next.add(option.name)
+                      return next
+                    })
+                  }
+                  label={option.label}
+                  hint={stemAvailabilityHint(option, selectedTrackIds.length)}
+                />
+              ))
+            )}
+            {hasStems ? (
+              <div className="export-stem-format">
+                <span>Separated stem format</span>
+                <div className="import-source-toggle">
+                  <button
+                    type="button"
+                    className={`segmented ${stemFmt === 'mp3' ? 'segmented-active' : ''}`}
+                    onClick={() => setStemFmt('mp3')}
+                  >
+                    MP3
+                  </button>
+                  <button
+                    type="button"
+                    className={`segmented ${stemFmt === 'wav' ? 'segmented-active' : ''}`}
+                    onClick={() => setStemFmt('wav')}
+                  >
+                    WAV
+                  </button>
+                </div>
+              </div>
+            ) : null}
             <IncludeRow
-              key={option.name}
-              checked={selectedStems.has(option.name)}
-              onToggle={() =>
-                setSelectedStems((current) => {
-                  const next = new Set(current)
-                  if (next.has(option.name)) next.delete(option.name)
-                  else next.add(option.name)
-                  return next
-                })
-              }
-              label={option.label}
-              hint={stemAvailabilityHint(option, selectedTrackIds.length)}
-              format={stemFmt}
-              onFormatChange={setStemFmt}
+              checked={includeSource}
+              onToggle={() => setIncludeSource((value) => !value)}
+              label="Original song"
+              hint="The imported source audio, alongside the export."
             />
-          ))
-        )}
-        <IncludeRow
-          checked={includeSource}
-          onToggle={() => setIncludeSource((value) => !value)}
-          label="Source file"
-          hint="The original imported audio, alongside the export."
-        />
+          </>
+        ) : null}
       </div>
 
       {mp3Requested ? (
@@ -339,7 +412,7 @@ export function ExportBuilder({
         </label>
       ) : null}
 
-      {multiTrack ? (
+      {multiTrack && showArtifactDetails ? (
         <div className="export-pack">
           <span>Packaging</span>
           <div className="import-source-toggle">
@@ -362,7 +435,7 @@ export function ExportBuilder({
         </div>
       ) : null}
 
-      {variant === 'full' ? (
+      {variant === 'full' && showArtifactDetails ? (
         <section className="export-manifest-section">
           <div className="export-manifest-head-bar">
             <span>Included</span>
@@ -385,20 +458,22 @@ export function ExportBuilder({
               <Spinner /> Checking which artifacts are available…
             </p>
           ) : (
-            <p className="inline-hint">Pick at least one thing to include to see what will be in the export.</p>
+            <p className="inline-hint">Pick at least one audio file to see what will be in the export.</p>
           )}
         </section>
       ) : (
         <p className="export-compact-summary" aria-live="polite">
           {!artifactList.length
-            ? 'Pick at least one output.'
+            ? 'Pick at least one audio file to export.'
             : planLoading && !plan
               ? 'Estimating size…'
               : planError
                 ? planError
                 : plan
-                  ? `Estimated ${formatSize(totalBytes)}${plan.delivery ? ` · ${deliverySummary(plan.delivery)}` : ''}`
-                  : ''}
+                  ? `Included: ${exportingOnlyCurrentMix ? 'audio mix' : 'selected audio'} · ${formatSize(totalBytes)}${skippedCount > 0 ? ` · ${skippedCount} skipped` : ''}${plan.delivery ? ` · ${deliverySummary(plan.delivery)}` : ''}`
+                  : exportingOnlyCurrentMix
+                    ? 'Included: audio mix using saved levels and mutes.'
+                    : ''}
         </p>
       )}
 
@@ -409,21 +484,19 @@ export function ExportBuilder({
           <button
             type="button"
             className="button-primary"
-            disabled={
-              busy ||
-              !artifactList.length ||
-              !selectedTrackIds.length ||
-              (plan !== null && includedCount === 0) ||
-              (mp3Requested && !bitrateValid)
-            }
+            disabled={exportDisabled}
             onClick={() => discardRejection(handleExport)}
           >
             {busy ? (
               <>
                 <Spinner /> Exporting…
               </>
+            ) : planLoading ? (
+              <>
+                <Spinner /> Checking…
+              </>
             ) : (
-              'Export'
+              exportButtonLabel
             )}
           </button>
         </div>
@@ -447,7 +520,7 @@ function StemStatusRow({ hint }: { hint: string }) {
     <div className="export-pop-row is-disabled" aria-disabled>
       <span aria-hidden />
       <div className="export-pop-row-copy">
-        <strong>Stems</strong>
+        <strong>Separated stems</strong>
         <span>{hint}</span>
       </div>
     </div>
@@ -456,12 +529,14 @@ function StemStatusRow({ hint }: { hint: string }) {
 
 function IncludeRow({ checked, disabled, onToggle, label, hint, format, onFormatChange }: IncludeRowProps) {
   return (
-    <label className={`export-pop-row ${checked ? 'is-on' : ''} ${disabled ? 'is-disabled' : ''}`}>
-      <input type="checkbox" checked={checked} disabled={disabled} onChange={onToggle} />
-      <div className="export-pop-row-copy">
-        <strong>{label}</strong>
-        <span>{hint}</span>
-      </div>
+    <div className={`export-pop-row ${checked ? 'is-on' : ''} ${disabled ? 'is-disabled' : ''}`}>
+      <label className="export-pop-row-check">
+        <input type="checkbox" checked={checked} disabled={disabled} onChange={onToggle} />
+        <span className="export-pop-row-copy">
+          <strong>{label}</strong>
+          <span>{hint}</span>
+        </span>
+      </label>
       {format && onFormatChange ? (
         <div className="import-source-toggle export-pop-row-fmt">
           <button
@@ -482,7 +557,7 @@ function IncludeRow({ checked, disabled, onToggle, label, hint, format, onFormat
           </button>
         </div>
       ) : null}
-    </label>
+    </div>
   )
 }
 

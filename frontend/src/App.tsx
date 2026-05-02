@@ -19,7 +19,7 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { filterImportableMediaFiles } from './importableMedia'
 import { buildMixPath, buildSongsPath, parseSongsView } from './routes'
 import type { SongsView } from './routes'
-import { resolveSelectedRun } from './runSelection'
+import { resolveSelectedRun, resolveVisibleRunAtIndex } from './runSelection'
 import type { RunProcessingConfigInput, TrackSummary } from './types'
 
 type NavigationState = {
@@ -61,6 +61,7 @@ function App() {
     creatingRun,
     cancellingRunId,
     retryingRunId,
+    dismissingRunId,
     deletingRunId,
     savingSettings,
     cleaningTempStorage,
@@ -80,6 +81,7 @@ function App() {
     handleBatchCreateRun,
     handleCancelRun,
     handleRetryRun,
+    handleDismissRun,
     handleDeleteRun,
     handleRevealFolder,
     handleSaveSettings,
@@ -126,8 +128,13 @@ function App() {
   const dragCounterRef = useRef(0)
 
   const browseTracks = useMemo(
-    () => applySongBrowse(tracks, { search: songsView.search, sort: songsView.sort }),
-    [songsView.search, songsView.sort, tracks],
+    () =>
+      applySongBrowse(tracks, {
+        search: songsView.search,
+        sort: songsView.sort,
+        filter: songsView.filter,
+      }),
+    [songsView.filter, songsView.search, songsView.sort, tracks],
   )
   const currentBrowseIndex = useMemo(
     () => (mixActive && mixTrackId ? browseTracks.findIndex((t) => t.id === mixTrackId) : -1),
@@ -318,7 +325,7 @@ function App() {
     },
     onSelectRunByIndex: (index) => {
       if (!mixActive || !selectedTrack) return
-      const run = selectedTrack.runs[index]
+      const run = resolveVisibleRunAtIndex(selectedTrack, index)
       if (!run) return
       openMix(selectedTrack.id, { runId: run.id })
     },
@@ -428,19 +435,18 @@ function App() {
                   queueRuns={queueRuns}
                   cancellingRunId={cancellingRunId}
                   retryingRunId={retryingRunId}
+                  dismissingRunId={dismissingRunId}
                   onViewChange={(next) =>
                     navigate(buildSongsPath(next), {
                       state: { songsView: next, currentTrackId: rememberedCurrentTrackId },
                     })
                   }
                   onOpenTrack={openTrackWorkspace}
-                  onCreateStemsForTrack={(trackId) => {
-                    discardRejection(() => handleCreateRun(trackId, defaultProcessing))
-                  }}
                   onAddSongs={revealImportPanel}
                   onReviewImports={revealImportPanel}
                   onCancelRun={handleCancelRun}
                   onRetryRun={handleRetryRun}
+                  onDismissRun={handleDismissRun}
                   onBatchCreateStems={(ids) => setBatchStemIds(ids)}
                   onBatchExport={(ids) => setBatchExportIds(ids)}
                   onBatchDelete={handleBatchDeleteTracks}
@@ -531,8 +537,13 @@ function App() {
           onUpdateDraft={handleUpdateDraft}
           onDiscardDraft={handleDiscardDraft}
           onConfirm={async (payload) => {
-            await handleConfirmDrafts(payload)
+            const result = await handleConfirmDrafts(payload)
             setImportPanelOpen(false)
+            if (payload.queue && result.tracks.length === 1 && result.queued_run_count === 1) {
+              const track = result.tracks[0]
+              openMix(track.id, { runId: track.latest_run?.id ?? null })
+            }
+            return result
           }}
         />
 
@@ -598,7 +609,7 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
     entries: [
       { key: 'Space', desc: 'Play / Pause' },
       { key: 'r', desc: 'Create default stems again' },
-      { key: '1 – 9', desc: 'Switch output by index' },
+      { key: '1 – 9', desc: 'Switch stem set by index' },
       { key: 'v', desc: 'Open stem picker' },
       { key: 'e', desc: 'Open export panel' },
       { key: '← →', desc: 'Adjust fader', note: '0.5 dB' },

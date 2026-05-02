@@ -13,10 +13,10 @@ from backend.schemas.tracks import (
     BatchDeleteResponse,
     BatchTrackIdsRequest,
     CreateRunRequest,
-    CreateRunResponse,
     QueueRunResponse,
     RunDetailResponse,
     RunMixInput,
+    RunMutationResponse,
     SetKeeperRequest,
     TrackDetailResponse,
     TrackSummaryResponse,
@@ -29,6 +29,7 @@ from backend.services.tracks import (
     batch_delete_tracks as batch_delete_tracks_service,
     create_run,
     delete_run,
+    dismiss_run,
     get_track,
     list_tracks,
     request_run_cancellation,
@@ -92,13 +93,13 @@ def download_track_source(track_id: str, session: Session = Depends(get_db_sessi
     )
 
 
-@router.post("/tracks/{track_id}/runs", response_model=CreateRunResponse)
+@router.post("/tracks/{track_id}/runs", response_model=RunMutationResponse)
 def create_track_run(
     track_id: str,
     payload: CreateRunRequest,
     session: Session = Depends(get_db_session),
     runtime_settings: RuntimeSettings = Depends(get_settings_dependency),
-) -> CreateRunResponse:
+) -> RunMutationResponse:
     track = get_track(session, track_id)
     if track is None:
         raise HTTPException(status_code=404, detail="Track not found.")
@@ -115,18 +116,18 @@ def create_track_run(
         raise HTTPException(status_code=400, detail=str(error)) from error
 
     session.refresh(run)
-    return CreateRunResponse(run=serialize_run_summary(run))
+    return RunMutationResponse(run=serialize_run_summary(run))
 
 
-@router.post("/runs/{run_id}/cancel", response_model=CreateRunResponse)
-def cancel_run_endpoint(run_id: str, session: Session = Depends(get_db_session)) -> CreateRunResponse:
+@router.post("/runs/{run_id}/cancel", response_model=RunMutationResponse)
+def cancel_run_endpoint(run_id: str, session: Session = Depends(get_db_session)) -> RunMutationResponse:
     try:
         run = request_run_cancellation(session, run_id)
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
-    return CreateRunResponse(run=serialize_run_summary(run))
+    return RunMutationResponse(run=serialize_run_summary(run))
 
 
 @router.delete("/runs/{run_id}")
@@ -140,15 +141,26 @@ def delete_run_endpoint(run_id: str, session: Session = Depends(get_db_session))
     return {"ok": True}
 
 
-@router.post("/runs/{run_id}/retry", response_model=CreateRunResponse)
-def retry_run_endpoint(run_id: str, session: Session = Depends(get_db_session)) -> CreateRunResponse:
+@router.post("/runs/{run_id}/retry", response_model=RunMutationResponse)
+def retry_run_endpoint(run_id: str, session: Session = Depends(get_db_session)) -> RunMutationResponse:
     try:
         run = retry_run(session, run_id)
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
-    return CreateRunResponse(run=serialize_run_summary(run))
+    return RunMutationResponse(run=serialize_run_summary(run))
+
+
+@router.post("/runs/{run_id}/dismiss", response_model=RunMutationResponse)
+def dismiss_run_endpoint(run_id: str, session: Session = Depends(get_db_session)) -> RunMutationResponse:
+    try:
+        run = dismiss_run(session, run_id)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return RunMutationResponse(run=serialize_run_summary(run))
 
 
 @router.put(

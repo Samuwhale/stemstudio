@@ -2,14 +2,18 @@
 
 set -eu
 
-PYTHON_BIN=""
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+. "$SCRIPT_DIR/python-common.sh"
 
-if [ -x ".venv/bin/python" ]; then
+PYTHON_BIN="${PYTHON_BIN:-}"
+
+if [ -n "$PYTHON_BIN" ]; then
+  :
+elif [ -x ".venv/bin/python" ]; then
   PYTHON_BIN=".venv/bin/python"
-elif command -v python3 >/dev/null 2>&1; then
-  PYTHON_BIN="$(command -v python3)"
-elif command -v python >/dev/null 2>&1; then
-  PYTHON_BIN="$(command -v python)"
+elif ! PYTHON_BIN="$(find_python)"; then
+  echo "Python 3.10+ is required. Create .venv or install a newer Python interpreter." >&2
+  exit 1
 fi
 
 if [ -z "$PYTHON_BIN" ]; then
@@ -17,8 +21,8 @@ if [ -z "$PYTHON_BIN" ]; then
   exit 1
 fi
 
-if ! "$PYTHON_BIN" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
-  PYTHON_VERSION="$("$PYTHON_BIN" -c 'import sys; print(".".join(str(part) for part in sys.version_info[:3]))')"
+if ! is_supported_python "$PYTHON_BIN"; then
+  PYTHON_VERSION="$(python_version "$PYTHON_BIN")"
   echo "Python 3.10+ is required; found $PYTHON_VERSION at $PYTHON_BIN. Create .venv or update PATH to a newer interpreter." >&2
   exit 1
 fi

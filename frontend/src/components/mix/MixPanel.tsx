@@ -12,6 +12,7 @@ type MixPanelProps = {
   run: RunDetail
   onSave: (stems: RunMixStemEntry[]) => Promise<void>
   saving: boolean
+  onSaveStatusChange?: (state: MixSaveStatus) => void
 }
 
 type StemRow = {
@@ -27,6 +28,12 @@ type StemRow = {
 }
 
 type SaveState = 'idle' | 'pending' | 'saving' | 'saved' | 'failed'
+export type MixSaveStatus = {
+  state: SaveState
+  dirty: boolean
+  error: string | null
+}
+type QuickMixKind = 'remove-vocals' | 'keep-backing' | 'vocals-only' | 'reset'
 
 type GainFieldProps = {
   gainDb: number
@@ -105,6 +112,8 @@ const SAVE_DEBOUNCE_MS = 400
 const FADER_STEP = 0.5
 const FADER_STEP_FINE = 0.1
 const FADER_STEP_COARSE = 3
+const STEM_KIND_PREFIX = 'stem:'
+const VOCAL_STEMS = new Set(['vocals', 'lead_vocals', 'backing_vocals'])
 
 // 0 dB sits at 66.6667% of the fader track because MIN=-24 and MAX=+12.
 // position% = (value - MIN) / (MAX - MIN) * 100
@@ -142,6 +151,23 @@ function initialStems(run: RunDetail): StemRow[] {
 function stemDownloadName(kind: string, label: string): string {
   const ext = kind.startsWith('stem-mp3:') ? 'mp3' : 'wav'
   return `${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.${ext}`
+}
+
+function stemName(kind: string) {
+  return kind.startsWith(STEM_KIND_PREFIX) ? kind.slice(STEM_KIND_PREFIX.length) : kind
+}
+
+function isVocalStem(stem: StemRow) {
+  return VOCAL_STEMS.has(stemName(stem.kind))
+}
+
+function isBackingStem(stem: StemRow) {
+  return stemName(stem.kind) === 'backing_vocals'
+}
+
+function isLeadStem(stem: StemRow) {
+  const name = stemName(stem.kind)
+  return name === 'lead_vocals' || name === 'vocals'
 }
 
 function equalsPersisted(stems: StemRow[], mixStems: RunMixStemEntry[]) {
@@ -212,8 +238,8 @@ function MixStateLabel({ stems, anySoloed }: { stems: StemRow[]; anySoloed: bool
     const soloed = stems.filter((s) => s.soloed)
     const label =
       soloed.length <= 2
-        ? `Soloing ${soloed.map((s) => s.label).join(', ')}`
-        : `Soloing ${soloed.length} stems`
+        ? `Preview solo: ${soloed.map((s) => s.label).join(', ')}`
+        : `Preview solo: ${soloed.length} stems`
     return (
       <>
         <span className="mix-transport-sep" aria-hidden>·</span>
@@ -238,13 +264,72 @@ function MixStateLabel({ stems, anySoloed }: { stems: StemRow[]; anySoloed: bool
   )
 }
 
+function QuickMixStrip({
+  stems,
+  resetAvailable,
+  onApply,
+}: {
+  stems: StemRow[]
+  resetAvailable: boolean
+  onApply: (kind: QuickMixKind) => void
+}) {
+  const hasVocals = stems.some(isVocalStem)
+  const hasLeadAndBacking = stems.some(isLeadStem) && stems.some(isBackingStem)
+  if (!hasVocals && !resetAvailable) return null
+
+  return (
+    <div className="mix-presets" role="toolbar" aria-label="Quick mix">
+      {hasVocals ? (
+        <>
+          <button
+            type="button"
+            className="mix-preset"
+            onClick={() => onApply('remove-vocals')}
+            title="Mute vocal stems and keep the rest audible."
+          >
+            Remove vocals
+          </button>
+          {hasLeadAndBacking ? (
+            <button
+              type="button"
+              className="mix-preset"
+              onClick={() => onApply('keep-backing')}
+              title="Mute lead vocals while keeping backing vocals in the mix."
+            >
+              Keep backing vocals
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="mix-preset"
+            onClick={() => onApply('vocals-only')}
+            title="Mute non-vocal stems for a vocals-only export."
+          >
+            Vocals only
+          </button>
+        </>
+      ) : null}
+      {resetAvailable ? (
+        <button
+          type="button"
+          className="mix-preset"
+          onClick={() => onApply('reset')}
+          title="Restore every stem to 0 dB and unmuted."
+        >
+          Reset mix
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
   const tag = target.tagName
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable
 }
 
-export function MixPanel({ run, onSave, saving }: MixPanelProps) {
+export function MixPanel({ run, onSave, saving, onSaveStatusChange }: MixPanelProps) {
   const [stems, setStems] = useState<StemRow[]>(() => initialStems(run))
   const saveTimerRef = useRef<number | null>(null)
   const pendingSavePayloadRef = useRef<RunMixStemEntry[] | null>(null)
@@ -277,6 +362,10 @@ export function MixPanel({ run, onSave, saving }: MixPanelProps) {
   }, [saveState])
 
   const dirty = !equalsPersisted(stems, run.mix.stems)
+
+  useEffect(() => {
+    onSaveStatusChange?.({ state: saveState, dirty, error: saveError })
+  }, [dirty, onSaveStatusChange, saveError, saveState])
 
   const mixerStems = useMemo(
     () =>
@@ -344,6 +433,19 @@ export function MixPanel({ run, onSave, saving }: MixPanelProps) {
     })
   }
 
+  function applyQuickMix(kind: QuickMixKind) {
+    setStems((current) => {
+      const next = current.map((stem) => {
+        if (kind === 'reset') return { ...stem, gain_db: 0, muted: false, soloed: false }
+        if (kind === 'remove-vocals') return { ...stem, muted: isVocalStem(stem), soloed: false }
+        if (kind === 'vocals-only') return { ...stem, muted: !isVocalStem(stem), soloed: false }
+        return { ...stem, muted: isLeadStem(stem) && !isBackingStem(stem), soloed: false }
+      })
+      scheduleSave(next)
+      return next
+    })
+  }
+
   const handleTogglePlay = useCallback(() => {
     if (mixer.isPlaying) mixer.pause()
     else mixer.play()
@@ -375,6 +477,7 @@ export function MixPanel({ run, onSave, saving }: MixPanelProps) {
   }
 
   const anySoloed = stems.some((stem) => stem.soloed)
+  const resetAvailable = stems.some((stem) => stem.muted || Math.abs(stem.gain_db) >= 0.05)
 
   const showTransportSave =
     !saveError && (saving || saveState === 'saving' || saveState === 'pending' || saveState === 'saved' || dirty)
@@ -382,6 +485,8 @@ export function MixPanel({ run, onSave, saving }: MixPanelProps) {
 
   return (
     <>
+      <QuickMixStrip stems={stems} resetAvailable={resetAvailable} onApply={applyQuickMix} />
+
       <div className="mix-rows" role="group" aria-label="Stem mixer" data-audio-loading={playLoading || undefined}>
         {stems.map((stem, index) => {
           const silenced = stem.muted || (anySoloed && !stem.soloed)
@@ -411,16 +516,17 @@ export function MixPanel({ run, onSave, saving }: MixPanelProps) {
                     aria-pressed={stem.muted}
                     title={stem.muted ? `Unmute ${stem.label}` : `Mute ${stem.label}`}
                   >
-                    M
+                    Mute
                   </button>
                   <button
                     type="button"
                     className={`stem-toggle stem-toggle-solo ${stem.soloed ? 'is-active' : ''}`}
                     onClick={() => updateStem(index, { soloed: !stem.soloed })}
                     aria-pressed={stem.soloed}
-                    title={stem.soloed ? `Unsolo ${stem.label}` : `Solo ${stem.label}`}
+                    aria-label={stem.soloed ? `Stop solo preview for ${stem.label}` : `Solo preview ${stem.label}`}
+                    title={stem.soloed ? `Stop solo preview for ${stem.label}` : `Solo preview only. Exports use saved mutes and levels.`}
                   >
-                    S
+                    Solo
                   </button>
                   <a
                     href={stem.url}
@@ -495,6 +601,7 @@ export function MixPanel({ run, onSave, saving }: MixPanelProps) {
           <span className="mix-time-total">{formatTime(mixer.duration)}</span>
         </span>
         <MixStateLabel stems={stems} anySoloed={anySoloed} />
+        <span className="mix-transport-note">Export uses saved mutes and levels. Solo only changes preview.</span>
         {showTransportSave ? (
           <>
             <span className="mix-transport-sep" aria-hidden>·</span>

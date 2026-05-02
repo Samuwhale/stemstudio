@@ -239,7 +239,7 @@ export function SettingsPanel({
               <div className="storage-action-row">
                 <div className="storage-action-copy">
                   <strong>Delete export downloads</strong>
-                  <p>Removes built export files only. Your saved songs, outputs, and source files stay intact.</p>
+                  <p>Removes built export files only. Your saved songs, stem sets, and source files stay intact.</p>
                 </div>
                 <ConfirmInline
                   label={cleaningExportBundles ? 'Working…' : formatSize(exportBundles?.reclaimable_bytes ?? 0) ?? '0 B'}
@@ -255,15 +255,15 @@ export function SettingsPanel({
 
               <div className="storage-action-row">
                 <div className="storage-action-copy">
-                  <strong>Purge non-preferred outputs</strong>
-                  <p>Deletes outputs that are not marked as preferred. Use this only after you have chosen winners.</p>
+                  <strong>Purge non-preferred stem sets</strong>
+                  <p>Deletes stem sets that are not marked as preferred. Use this only after you have chosen winners.</p>
                 </div>
                 <ConfirmInline
                   label={cleaningLibraryRuns ? 'Working…' : formatSize(outputs?.reclaimable_bytes ?? 0) ?? '0 B'}
                   pendingLabel="Working…"
-                  confirmLabel="Purge non-preferred outputs"
-                  cancelLabel="Keep all outputs"
-                  prompt="Delete non-preferred outputs across the library?"
+                  confirmLabel="Purge non-preferred stem sets"
+                  cancelLabel="Keep all stem sets"
+                  prompt="Delete non-preferred stem sets across the library?"
                   pending={cleaningLibraryRuns}
                   disabled={(outputs?.reclaimable_bytes ?? 0) === 0}
                   onConfirm={async () => onCleanupLibraryRuns()}
@@ -273,14 +273,14 @@ export function SettingsPanel({
               <div className="storage-action-row storage-action-row-danger">
                 <div className="storage-action-copy">
                   <strong>Clear all songs &amp; data</strong>
-                  <p>Deletes every imported song, output, export, and pending import. The processing model cache is kept so future splits stay fast.</p>
+                  <p>Deletes every imported song, stem set, export, and pending import. The processing model cache is kept so future splits stay fast.</p>
                 </div>
                 <ConfirmInline
                   label={resettingLibrary ? 'Working…' : 'Clear everything'}
                   pendingLabel="Working…"
                   confirmLabel="Delete all songs"
                   cancelLabel="Keep my library"
-                  prompt="Delete every song, output, and import?"
+                  prompt="Delete every song, stem set, and import?"
                   pending={resettingLibrary}
                   onConfirm={onResetLibrary}
                 />

@@ -134,6 +134,10 @@ export type RunDetail = RunSummary & {
   mix: RunMixState
 }
 
+export type RunMutationResponse = {
+  run: RunSummary
+}
+
 export type TrackSummary = {
   id: string
   title: string

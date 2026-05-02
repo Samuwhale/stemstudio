@@ -2,19 +2,8 @@
 
 set -eu
 
-find_python() {
-  for candidate in python3.13 python3.12 python3.11 python3.10 python3 python; do
-    if ! command -v "$candidate" >/dev/null 2>&1; then
-      continue
-    fi
-    binary="$(command -v "$candidate")"
-    if "$binary" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
-      printf '%s\n' "$binary"
-      return 0
-    fi
-  done
-  return 1
-}
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+. "$SCRIPT_DIR/python-common.sh"
 
 PYTHON_BIN="${PYTHON_BIN:-}"
 if [ -z "$PYTHON_BIN" ]; then
@@ -24,8 +13,8 @@ if [ -z "$PYTHON_BIN" ]; then
   fi
 fi
 
-if ! "$PYTHON_BIN" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
-  PYTHON_VERSION="$("$PYTHON_BIN" -c 'import sys; print(".".join(str(part) for part in sys.version_info[:3]))')"
+if ! is_supported_python "$PYTHON_BIN"; then
+  PYTHON_VERSION="$(python_version "$PYTHON_BIN")"
   echo "Python 3.10+ is required; found $PYTHON_VERSION at $PYTHON_BIN." >&2
   exit 1
 fi

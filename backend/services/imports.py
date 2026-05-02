@@ -158,6 +158,7 @@ def resolve_local_import(
     pending_dir.mkdir(parents=True, exist_ok=True)
 
     drafts: list[ImportDraft] = []
+    seen_content_hashes: dict[str, str] = {}
     try:
         for original_name, file_handle in files:
             extension = Path(original_name).suffix.lower()
@@ -172,6 +173,13 @@ def resolve_local_import(
                 shutil.copyfileobj(file_handle, output_file)
 
             content_hash = compute_file_sha256(pending_path)
+            first_name = seen_content_hashes.get(content_hash)
+            if first_name is not None:
+                raise ValueError(
+                    f"'{original_name}' is the same audio file as '{first_name}'. "
+                    "Remove duplicate files and try again."
+                )
+            seen_content_hashes[content_hash] = original_name
             matches = _find_duplicates_by_hash(duplicates, content_hash)
             title = _title_from_filename(original_name)
 

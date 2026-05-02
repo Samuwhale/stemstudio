@@ -1,11 +1,12 @@
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useRef } from 'react'
 
 import { discardRejection } from '../../async'
 import { useDialogFocus } from '../../hooks/useDialogFocus'
+import { useProcessingSelection } from '../../hooks/useProcessingSelection'
 import { stemSelectionLabel } from '../../stems'
 import { StemSelectionPicker } from '../StemSelectionPicker'
 import { Spinner } from '../feedback/Spinner'
-import { trackStageSummary } from '../trackListView'
+import { planBatchStemSelection } from '../trackListView'
 import type {
   QualityOption,
   RunProcessingConfigInput,
@@ -23,21 +24,6 @@ type BatchStemOverlayProps = {
   busy: boolean
   onClose: () => void
   onConfirm: (trackIds: string[], processing: RunProcessingConfigInput) => Promise<void>
-}
-
-type StemPlanRow = {
-  track: TrackSummary
-  eligible: boolean
-  reason: string
-}
-
-function planRow(track: TrackSummary): StemPlanRow {
-  const stage = trackStageSummary(track)
-  if (stage.key === 'needs-stems') return { track, eligible: true, reason: 'Will create stems' }
-  if (stage.key === 'needs-attention') return { track, eligible: true, reason: 'Will retry stem creation' }
-  if (stage.key === 'ready') return { track, eligible: true, reason: 'Will create or unlock stems' }
-  if (stage.key === 'final') return { track, eligible: true, reason: 'Will create or unlock stems' }
-  return { track, eligible: false, reason: 'Already creating stems' }
 }
 
 export function BatchStemOverlay(props: BatchStemOverlayProps) {
@@ -59,14 +45,15 @@ function BatchStemOverlayContent({
   const closeButtonRef = useRef<HTMLButtonElement | null>(null)
   useDialogFocus(true, { containerRef: panelRef, initialFocusRef: closeButtonRef })
 
-  const [selection, setSelection] = useState(defaultSelection)
+  const [selection, setSelection] = useProcessingSelection(defaultSelection)
 
-  const rows = useMemo<StemPlanRow[]>(() => {
-    const idSet = new Set(selectedTrackIds)
-    return tracks.filter((track) => idSet.has(track.id)).map(planRow)
-  }, [selectedTrackIds, tracks])
+  const rows = useMemo(
+    () => planBatchStemSelection(tracks, selectedTrackIds),
+    [selectedTrackIds, tracks],
+  )
 
   const eligibleRows = rows.filter((row) => row.eligible)
+  const skippedRows = rows.filter((row) => !row.eligible)
   const eligibleIds = eligibleRows.map((row) => row.track.id)
 
   async function handleConfirm() {
@@ -86,9 +73,7 @@ function BatchStemOverlayContent({
     >
       <div className="overlay-panel overlay-panel-wide" ref={panelRef} tabIndex={-1}>
         <header className="overlay-head">
-          <h2>
-            Create stems for {eligibleRows.length} song{eligibleRows.length === 1 ? '' : 's'}
-          </h2>
+          <h2>Create stems</h2>
           <button ref={closeButtonRef} type="button" className="button-secondary" onClick={onClose}>
             Close
           </button>
@@ -99,6 +84,18 @@ function BatchStemOverlayContent({
             <p className="imports-empty">No tracks selected.</p>
           ) : (
             <div className="batch-stems">
+              <div className="batch-stems-summary" aria-live="polite">
+                <strong>
+                  {eligibleRows.length} stem job{eligibleRows.length === 1 ? '' : 's'} ready
+                </strong>
+                <span>
+                  {rows.length} selected
+                  {skippedRows.length > 0
+                    ? ` · ${skippedRows.length} already processing`
+                    : ''}
+                </span>
+              </div>
+
               <StemSelectionPicker
                 value={selection}
                 stemOptions={stemOptions}
@@ -107,27 +104,31 @@ function BatchStemOverlayContent({
                 onChange={setSelection}
               />
 
-              <ul className="export-manifest">
-                {rows.map((row) => (
-                  <li
-                    key={row.track.id}
-                    className={`export-manifest-row ${row.eligible ? '' : 'export-manifest-row-skipped'}`}
-                  >
-                    <div className="export-manifest-head">
-                      <strong>{row.track.title}</strong>
-                    </div>
-                    <div className={row.eligible ? 'batch-stems-reason' : 'export-manifest-skip'}>
-                      {row.reason}
-                    </div>
-                  </li>
-                ))}
-              </ul>
+              {skippedRows.length > 0 ? (
+                <details className="batch-stems-skipped">
+                  <summary>
+                    {skippedRows.length} skipped because stem creation is already running
+                  </summary>
+                  <ul>
+                    {skippedRows.map((row) => (
+                      <li key={row.track.id}>
+                        <strong>{row.track.title}</strong>
+                        <span>{row.reason}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              ) : null}
 
               <div className="import-footer">
                 {eligibleRows.length === 0 ? (
                   <span>None of the selected tracks can create stems right now.</span>
                 ) : (
-                  <span>{stemSelectionLabel(selection.stems, stemOptions)}</span>
+                  <span>
+                    {selection.stems.length
+                      ? `Queue ${stemSelectionLabel(selection.stems, stemOptions)}.`
+                      : 'Choose stems to create.'}
+                  </span>
                 )}
                 <button
                   type="button"

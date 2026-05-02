@@ -2,6 +2,13 @@ import type { RunSummary } from '../types'
 
 const ACTIVE_RUN_STATUSES = new Set(['queued', 'preparing', 'separating', 'exporting'])
 
+export type RunJourneyStatus = {
+  label: string
+  detail: string
+  tone: 'active' | 'ready' | 'attention'
+  progressLabel: string | null
+}
+
 export function isActiveRunStatus(status: string): boolean {
   return ACTIVE_RUN_STATUSES.has(status)
 }
@@ -43,4 +50,35 @@ export function describeRun(run: RunSummary): string {
   const message = run.status_message?.trim()
   if (message) return message
   return RUN_STAGE_DESCRIPTIONS[run.status] ?? ''
+}
+
+export function summarizeRunJourney(run: RunSummary): RunJourneyStatus {
+  if (isActiveRunStatus(run.status)) {
+    const progress =
+      run.status !== 'queued' && run.progress > 0
+        ? `${Math.round(Math.max(0, Math.min(1, run.progress)) * 100)}%`
+        : null
+    return {
+      label: run.status === 'queued' ? 'Waiting in queue' : 'Creating stems',
+      detail: describeRun(run) || RUN_STATUS_LABELS[run.status] || 'Processing',
+      tone: 'active',
+      progressLabel: progress,
+    }
+  }
+
+  if (run.status === 'failed' || run.status === 'cancelled') {
+    return {
+      label: run.status === 'cancelled' ? 'Cancelled' : 'Stem job failed',
+      detail: run.error_message?.trim() || run.status_message?.trim() || 'Retry this stem set or create a different one.',
+      tone: 'attention',
+      progressLabel: null,
+    }
+  }
+
+  return {
+    label: 'Ready to mix',
+    detail: run.processing.label,
+    tone: 'ready',
+    progressLabel: null,
+  }
 }

@@ -143,7 +143,7 @@ class CreateRunRequest(BaseModel):
     processing: RunProcessingConfigRequest
 
 
-class CreateRunResponse(BaseModel):
+class RunMutationResponse(BaseModel):
     run: RunSummaryResponse
 
 

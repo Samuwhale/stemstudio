@@ -1,20 +1,23 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useEffectEvent, useRef, useState } from 'react'
 
 import { discardRejection } from '../../async'
+import { useProcessingSelection } from '../../hooks/useProcessingSelection'
 import { ConfirmInline } from '../feedback/ConfirmInline'
 import { RunStepper } from '../feedback/RunStepper'
 import { MixExportPopover } from './MixExportPopover'
-import { MixPanel } from './MixPanel'
+import { MixPanel, type MixSaveStatus } from './MixPanel'
 import { StemSelectionPicker } from '../StemSelectionPicker'
 import { formatDuration } from '../metrics'
-import { RUN_STATUS_SHORT_LABELS, isActiveRunStatus } from '../runStatus'
-import { resolveSelectedRun } from '../../runSelection'
+import { RUN_STATUS_SHORT_LABELS, isActiveRunStatus, summarizeRunJourney } from '../runStatus'
+import { listVisibleRuns, resolveSelectedRun } from '../../runSelection'
 import { isStemKind } from '../../stems'
+import { trackArtHue } from '../../trackArt'
 import type {
   QualityOption,
   RevealFolderInput,
   RunDetail,
   RunMixStemEntry,
+  RunMutationResponse,
   RunProcessingConfigInput,
   StemOption,
   TrackDetail,
@@ -41,9 +44,9 @@ type MixWorkspaceProps = {
   onNavigatePrev: () => void
   onNavigateNext: () => void
   onSelectRun: (runId: string) => void
-  onCreateRun: (trackId: string, processing: RunProcessingConfigInput) => Promise<unknown>
+  onCreateRun: (trackId: string, processing: RunProcessingConfigInput) => Promise<RunMutationResponse>
   onCancelRun: (runId: string) => Promise<void>
-  onRetryRun: (runId: string) => Promise<unknown>
+  onRetryRun: (runId: string) => Promise<RunMutationResponse>
   onDeleteRun: (runId: string) => Promise<void>
   onSetKeeper: (trackId: string, runId: string | null) => Promise<void>
   onSaveMix: (trackId: string, runId: string, stems: RunMixStemEntry[]) => Promise<void>
@@ -54,7 +57,8 @@ type MixWorkspaceProps = {
   onError: (message: string) => void
 }
 
-type Popover = null | 'versions' | 'export' | 'menu'
+type Popover = null | 'stemSets' | 'export' | 'menu'
+const IDLE_MIX_SAVE_STATUS: MixSaveStatus = { state: 'idle', dirty: false, error: null }
 
 type StemCreateControlProps = {
   stemOptions: StemOption[]
@@ -71,7 +75,7 @@ function StemCreateControl({
   creatingRun,
   onCreateRun,
 }: StemCreateControlProps) {
-  const [selection, setSelection] = useState(defaultSelection)
+  const [selection, setSelection] = useProcessingSelection(defaultSelection)
 
   return (
     <div className="mix-stem-select">
@@ -94,18 +98,7 @@ function StemCreateControl({
   )
 }
 
-/** DJB2 hash → stable hue in [0, 360) for track art background. */
-function trackHue(str: string): number {
-  let h = 5381
-  for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0
-  return Math.abs(h) % 360
-}
-
 const RETRYABLE_STATUSES = new Set(['failed', 'cancelled'])
-
-function processingSelectionKey(selection: RunProcessingConfigInput) {
-  return `${selection.quality}:${selection.stems.join(',')}`
-}
 
 function formatStatus(status: string) {
   return RUN_STATUS_SHORT_LABELS[status] ?? status
@@ -124,7 +117,13 @@ function isMixableRun(run: RunDetail) {
   return run.status === 'completed' && run.artifacts.some((artifact) => isStemKind(artifact.kind))
 }
 
-function versionSummary(run: RunDetail): string {
+function isEditableTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false
+  const tag = target.tagName
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable
+}
+
+function stemSetSummary(run: RunDetail): string {
   return run.processing.label
 }
 
@@ -242,7 +241,7 @@ function ProcessingWaveIcon() {
   )
 }
 
-type VersionsPopoverProps = {
+type StemSetsPopoverProps = {
   track: TrackDetail
   selectedRun: RunDetail | null
   stemOptions: StemOption[]
@@ -255,14 +254,14 @@ type VersionsPopoverProps = {
   settingKeeper: boolean
   onClose: () => void
   onSelectRun: (runId: string) => void
-  onCreateRun: (processing: RunProcessingConfigInput) => Promise<unknown>
+  onCreateRun: (processing: RunProcessingConfigInput) => Promise<RunMutationResponse>
   onCancelRun: (runId: string) => Promise<void>
-  onRetryRun: (runId: string) => Promise<unknown>
+  onRetryRun: (runId: string) => Promise<RunMutationResponse>
   onDeleteRun: (runId: string) => Promise<void>
   onSetKeeper: (runId: string | null) => Promise<void>
 }
 
-function VersionsPopover({
+function StemSetsPopover({
   track,
   selectedRun,
   stemOptions,
@@ -280,31 +279,31 @@ function VersionsPopover({
   onRetryRun,
   onDeleteRun,
   onSetKeeper,
-}: VersionsPopoverProps) {
+}: StemSetsPopoverProps) {
   const keeperId = track.keeper_run_id
   const selectedIsKeeper = !!selectedRun && keeperId === selectedRun.id
   const canDeleteSelected =
     !!selectedRun && selectedRun.id !== keeperId && !isActiveRunStatus(selectedRun.status)
-  const [selection, setSelection] = useState(defaultSelection)
-  const runs = [...track.runs].sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+  const [selection, setSelection] = useProcessingSelection(defaultSelection)
+  const runs = listVisibleRuns(track.runs)
 
   async function generate() {
     const result = await onCreateRun(selection)
-    if (result && typeof result === 'object' && 'run' in result) {
-      const runId = (result as { run: { id: string } }).run.id
-      onSelectRun(runId)
-    }
+    onSelectRun(result.run.id)
     onClose()
   }
 
   async function retry(run: RunDetail) {
-    onSelectRun(run.id)
-    await onRetryRun(run.id)
+    const result = await onRetryRun(run.id)
+    onSelectRun(result.run.id)
     onClose()
   }
 
   function stateLabel(run: RunDetail): string {
-    if (isActiveRunStatus(run.status)) return `${Math.round(run.progress * 100)}%`
+    if (isActiveRunStatus(run.status)) {
+      const status = summarizeRunJourney(run)
+      return status.progressLabel ?? status.label
+    }
     if (RETRYABLE_STATUSES.has(run.status)) {
       return retryingRunId === run.id ? 'Retrying…' : 'Retry'
     }
@@ -312,7 +311,7 @@ function VersionsPopover({
   }
 
   function detailLine(run: RunDetail): string {
-    if (isActiveRunStatus(run.status)) return run.status_message || formatStatus(run.status)
+    if (isActiveRunStatus(run.status)) return summarizeRunJourney(run).detail
     const when = formatTimestampShort(run.updated_at)
     if (run.status === 'completed') return when
     return `${formatStatus(run.status)} · ${when}`
@@ -321,8 +320,8 @@ function VersionsPopover({
   return (
     <>
       <div className="popover-backdrop" onClick={onClose} aria-hidden />
-      <div className="popover popover-right popover-wide" role="dialog" aria-label="Stem outputs">
-        <div className="popover-title">Stems</div>
+      <div className="popover popover-right popover-wide" role="dialog" aria-label="Stem sets">
+        <div className="popover-title">Stem sets</div>
         <div className="popover-section">
           <StemSelectionPicker
             value={selection}
@@ -337,7 +336,7 @@ function VersionsPopover({
             disabled={creatingRun || selection.stems.length === 0}
             onClick={() => discardRejection(generate)}
           >
-            {creatingRun ? 'Queueing…' : 'Create stems'}
+            {creatingRun ? 'Queueing…' : 'Create stem set'}
           </button>
         </div>
         {runs.length > 0 ? (
@@ -363,7 +362,7 @@ function VersionsPopover({
                   <span className="popover-row-copy">
                     <strong>
                       {isPreferred ? (
-                        <span className="popover-row-star" aria-label="Preferred" title="Preferred output">★</span>
+                        <span className="popover-row-star" aria-label="Preferred stem set" title="Preferred stem set">★</span>
                       ) : null}
                       {run.processing.label}
                     </strong>
@@ -398,15 +397,15 @@ function VersionsPopover({
                 discardRejection(() => onSetKeeper(selectedIsKeeper ? null : selectedRun.id))
               }
             >
-              {selectedIsKeeper ? 'Clear preferred' : 'Prefer this output'}
+              {selectedIsKeeper ? 'Clear preferred' : 'Use as preferred'}
             </button>
             {canDeleteSelected ? (
               <ConfirmInline
-                label="Delete output"
+                label="Delete stem set"
                 pendingLabel="Deleting…"
                 confirmLabel="Delete"
                 cancelLabel="Keep it"
-                prompt="Delete this output?"
+                prompt="Delete this stem set?"
                 pending={deletingRunId === selectedRun.id}
                 onConfirm={() => onDeleteRun(selectedRun.id)}
               />
@@ -427,7 +426,7 @@ type OverflowMenuProps = {
 }
 
 function OverflowMenu({ track, onClose, onReveal, onDeleteTrack, onOpenShortcuts }: OverflowMenuProps) {
-  const hasActiveRun = track.runs.some((run) => isActiveRunStatus(run.status))
+  const hasActiveRun = listVisibleRuns(track.runs).some((run) => isActiveRunStatus(run.status))
 
   return (
     <>
@@ -457,7 +456,7 @@ function OverflowMenu({ track, onClose, onReveal, onDeleteTrack, onOpenShortcuts
             pendingLabel="Deleting…"
             confirmLabel={`Delete "${track.title}"`}
             cancelLabel="Keep"
-            prompt={`Delete "${track.title}" and all its outputs?`}
+            prompt={`Delete "${track.title}" and all its stem sets?`}
             disabled={hasActiveRun}
             onConfirm={async () => {
               onDeleteTrack()
@@ -520,6 +519,7 @@ function MixWorkspaceContent({
   onOpenShortcuts,
   onError,
 }: MixWorkspaceProps & { track: TrackDetail }) {
+  const visibleRuns = listVisibleRuns(track.runs)
   const [popover, setPopover] = useState<Popover>(null)
   const [editingTitle, setEditingTitle] = useState(false)
   const [editTitle, setEditTitle] = useState('')
@@ -529,14 +529,42 @@ function MixWorkspaceContent({
   const editArtistRef = useRef<HTMLInputElement>(null)
 
   const selectedRun = resolveSelectedRun(track, selectedRunId)
+  const selectedRunStateId = selectedRun?.id ?? null
+  const [mixSaveState, setMixSaveState] = useState(() => ({
+    runId: selectedRunStateId,
+    status: IDLE_MIX_SAVE_STATUS,
+  }))
+  const mixSaveStatus =
+    mixSaveState.runId === selectedRunStateId ? mixSaveState.status : IDLE_MIX_SAVE_STATUS
   const mixable = selectedRun ? isMixableRun(selectedRun) : false
-  const canExport = !!selectedRun && selectedRun.status === 'completed'
-  const versionLabel = selectedRun ? versionSummary(selectedRun) : ''
-  const activeOutput = selectedRun && isActiveRunStatus(selectedRun.status)
+  const mixSavePending = mixable && (mixSaveStatus.state === 'pending' || mixSaveStatus.state === 'saving')
+  const mixSaveFailed = mixable && mixSaveStatus.state === 'failed'
+  const exportBlockedByMixSave = mixSavePending || mixSaveFailed
+  const canExport = !!selectedRun && selectedRun.status === 'completed' && !exportBlockedByMixSave
+  const stemSetLabel = selectedRun ? stemSetSummary(selectedRun) : ''
+  const activeStemSet = selectedRun && isActiveRunStatus(selectedRun.status)
   const selectedRunIsKeeper = !!selectedRun && selectedRun.id === track.keeper_run_id
-  const progressPct = activeOutput ? Math.round(selectedRun.progress * 100) : null
-  const completedRunCount = track.runs.filter((run) => run.status === 'completed').length
+  const progressPct = activeStemSet ? Math.round(selectedRun.progress * 100) : null
+  const completedRunCount = visibleRuns.filter((run) => run.status === 'completed').length
   const selectedRunQueued = selectedRun?.status === 'queued'
+  const taskStatus = selectedRun ? summarizeRunJourney(selectedRun) : null
+  const showStemSetControl = visibleRuns.length > 0
+  const taskbarLabel = mixSavePending
+    ? 'Saving mix changes'
+    : mixSaveFailed
+      ? 'Mix save failed'
+      : taskStatus?.label ?? 'Create stems for this song'
+  const taskbarDetail = mixSavePending
+    ? 'Export will be available after the latest levels and mutes are saved.'
+    : mixSaveFailed
+      ? mixSaveStatus.error ?? 'Retry the save from the mixer before exporting.'
+      : mixable
+        ? 'Export uses saved mutes and levels. Solo stays preview-only.'
+        : taskStatus?.detail ?? 'Choose a stem set, then adjust the separated tracks here.'
+
+  function handleMixSaveStatusChange(status: MixSaveStatus) {
+    setMixSaveState({ runId: selectedRunStateId, status })
+  }
 
   // Focus title input when edit mode opens
   useEffect(() => {
@@ -568,44 +596,40 @@ function MixWorkspaceContent({
     setEditingTitle(false)
   }
 
+  const handleWorkspaceKeyDown = useEffectEvent((event: KeyboardEvent) => {
+    if (event.key === 'Escape') {
+      if (editingTitle) {
+        cancelTitleEdit()
+        return
+      }
+      if (popover) setPopover(null)
+      return
+    }
+    if (isEditableTarget(event.target)) return
+    if (event.metaKey || event.ctrlKey || event.altKey) return
+
+    if (event.key === 'e') {
+      if (!canExport) return
+      event.preventDefault()
+      setPopover((current) => (current === 'export' ? null : 'export'))
+      return
+    }
+    if (event.key === 'v') {
+      if (!selectedRun) return
+      event.preventDefault()
+      setPopover((current) => (current === 'stemSets' ? null : 'stemSets'))
+    }
+  })
+
   useEffect(() => {
-    function isEditable(target: EventTarget | null) {
-      if (!(target instanceof HTMLElement)) return false
-      const tag = target.tagName
-      return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable
-    }
-
-    function handleKey(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        if (editingTitle) { cancelTitleEdit(); return }
-        if (popover) setPopover(null)
-        return
-      }
-      if (isEditable(event.target)) return
-      if (event.metaKey || event.ctrlKey || event.altKey) return
-
-      if (event.key === 'e') {
-        if (!canExport) return
-        event.preventDefault()
-        setPopover((p) => (p === 'export' ? null : 'export'))
-        return
-      }
-      if (event.key === 'v') {
-        if (!selectedRun) return
-        event.preventDefault()
-        setPopover((p) => (p === 'versions' ? null : 'versions'))
-      }
-    }
-    window.addEventListener('keydown', handleKey)
-    return () => window.removeEventListener('keydown', handleKey)
-  }, [editingTitle, popover, canExport, selectedRun])
+    window.addEventListener('keydown', handleWorkspaceKeyDown)
+    return () => window.removeEventListener('keydown', handleWorkspaceKeyDown)
+  }, [])
 
   function createRunAndSelect(processing: RunProcessingConfigInput) {
     discardRejection(async () => {
       const result = await onCreateRun(track.id, processing)
-      if (result && typeof result === 'object' && 'run' in result) {
-        onSelectRun((result as { run: { id: string } }).run.id)
-      }
+      onSelectRun(result.run.id)
     })
   }
 
@@ -649,7 +673,7 @@ function MixWorkspaceContent({
           <span
             className="mix-top-art"
             aria-hidden
-            style={{ '--art-hue': String(trackHue(track.title)) } as React.CSSProperties}
+            style={{ '--art-hue': String(trackArtHue(track.title)) } as React.CSSProperties}
           >
             {track.thumbnail_url
               ? <img src={track.thumbnail_url} alt="" loading="lazy" />
@@ -713,80 +737,6 @@ function MixWorkspaceContent({
           )}
         </div>
         <div className="mix-top-actions">
-          {selectedRun ? (
-            <span className="popover-anchor">
-              <button
-                type="button"
-                className={`mix-version-pill ${popover === 'versions' ? 'is-open' : ''} ${selectedRunIsKeeper ? 'is-keeper' : ''}`}
-                onClick={() => setPopover(popover === 'versions' ? null : 'versions')}
-                aria-haspopup="dialog"
-                aria-expanded={popover === 'versions'}
-                title={selectedRunIsKeeper ? 'Preferred output — click for stems (v)' : 'Stems — click to create, switch, or manage (v)'}
-              >
-                {activeOutput ? <span className="mix-version-dot" data-state="active" aria-hidden /> : null}
-                {!activeOutput && selectedRunIsKeeper ? (
-                  <span className="mix-version-star" aria-hidden>★</span>
-                ) : null}
-                <span className="mix-version-pill-label">{versionLabel}</span>
-                {selectedRunQueued ? (
-                  <span className="mix-version-count">queued</span>
-                ) : progressPct !== null ? (
-                  <span className="mix-version-count">{progressPct}%</span>
-                ) : completedRunCount > 1 ? (
-                  <span className="mix-version-count mix-version-count-badge" aria-label={`${completedRunCount} outputs`}>
-                    {completedRunCount}
-                  </span>
-                ) : null}
-                <span className="mix-version-chevron"><Chevron /></span>
-              </button>
-              {popover === 'versions' ? (
-                <VersionsPopover
-                  track={track}
-                  selectedRun={selectedRun}
-                  stemOptions={stemOptions}
-                  qualityOptions={qualityOptions}
-                  defaultSelection={defaultSelection}
-                  creatingRun={creatingRun}
-                  cancellingRunId={cancellingRunId}
-                  retryingRunId={retryingRunId}
-                  deletingRunId={deletingRunId}
-                  settingKeeper={settingKeeper}
-                  onClose={() => setPopover(null)}
-                  onSelectRun={onSelectRun}
-                  onCreateRun={(processing) => onCreateRun(track.id, processing)}
-                  onCancelRun={onCancelRun}
-                  onRetryRun={onRetryRun}
-                  onDeleteRun={onDeleteRun}
-                  onSetKeeper={(runId) => onSetKeeper(track.id, runId)}
-                />
-              ) : null}
-            </span>
-          ) : null}
-          {track.runs.length > 0 ? (
-            <span className="popover-anchor">
-              <button
-                type="button"
-                className="button-primary"
-                onClick={() => setPopover(popover === 'export' ? null : 'export')}
-                disabled={!canExport}
-                aria-haspopup="dialog"
-                aria-expanded={popover === 'export'}
-                title={canExport ? 'Export (e)' : 'Export unlocks after the selected output is ready.'}
-              >
-                Export
-              </button>
-              {popover === 'export' && selectedRun && canExport ? (
-                <MixExportPopover
-                  track={track}
-                  run={selectedRun}
-                  defaultBitrate={defaultBitrate}
-                  onClose={() => setPopover(null)}
-                  onReveal={onReveal}
-                  onError={onError}
-                />
-              ) : null}
-            </span>
-          ) : null}
           <span className="popover-anchor">
             <button
               type="button"
@@ -812,11 +762,114 @@ function MixWorkspaceContent({
         </div>
       </header>
 
+      <div className="mix-taskbar">
+        <div className="mix-taskbar-copy">
+          <strong>{taskbarLabel}</strong>
+          <span>{taskbarDetail}</span>
+        </div>
+        <div className="mix-taskbar-actions">
+          {showStemSetControl && selectedRun && !activeStemSet ? (
+            <button
+              type="button"
+              className="button-secondary mix-taskbar-secondary"
+              disabled={creatingRun}
+              onClick={() => setPopover('stemSets')}
+            >
+              Create another
+            </button>
+          ) : null}
+          {showStemSetControl ? (
+            <span className="popover-anchor">
+              <button
+                type="button"
+                className={`mix-version-pill ${popover === 'stemSets' ? 'is-open' : ''} ${selectedRunIsKeeper ? 'is-keeper' : ''}`}
+                onClick={() => setPopover(popover === 'stemSets' ? null : 'stemSets')}
+                aria-haspopup="dialog"
+                aria-expanded={popover === 'stemSets'}
+                title={selectedRunIsKeeper ? 'Preferred stem set — click to manage (v)' : 'Stem sets — create, switch, or manage (v)'}
+              >
+                {activeStemSet ? <span className="mix-version-dot" data-state="active" aria-hidden /> : null}
+                {!activeStemSet && selectedRunIsKeeper ? (
+                  <span className="mix-version-star" aria-hidden>★</span>
+                ) : null}
+                <span className="mix-version-pill-label">{selectedRun ? stemSetLabel : 'Choose stem set'}</span>
+                {selectedRunQueued ? (
+                  <span className="mix-version-count">queued</span>
+                ) : progressPct !== null ? (
+                  <span className="mix-version-count">{progressPct}%</span>
+                ) : completedRunCount > 1 ? (
+                  <span className="mix-version-count mix-version-count-badge" aria-label={`${completedRunCount} stem sets`}>
+                    {completedRunCount}
+                  </span>
+                ) : null}
+                <span className="mix-version-chevron"><Chevron /></span>
+              </button>
+              {popover === 'stemSets' ? (
+                <StemSetsPopover
+                  track={track}
+                  selectedRun={selectedRun}
+                  stemOptions={stemOptions}
+                  qualityOptions={qualityOptions}
+                  defaultSelection={defaultSelection}
+                  creatingRun={creatingRun}
+                  cancellingRunId={cancellingRunId}
+                  retryingRunId={retryingRunId}
+                  deletingRunId={deletingRunId}
+                  settingKeeper={settingKeeper}
+                  onClose={() => setPopover(null)}
+                  onSelectRun={onSelectRun}
+                  onCreateRun={(processing) => onCreateRun(track.id, processing)}
+                  onCancelRun={onCancelRun}
+                  onRetryRun={onRetryRun}
+                  onDeleteRun={onDeleteRun}
+                  onSetKeeper={(runId) => onSetKeeper(track.id, runId)}
+                />
+              ) : null}
+            </span>
+          ) : null}
+          <span className="popover-anchor">
+            <button
+              type="button"
+              className="button-primary"
+              onClick={() => {
+                if (!canExport) return
+                setPopover(popover === 'export' ? null : 'export')
+              }}
+              disabled={!canExport}
+              aria-haspopup="dialog"
+              aria-expanded={popover === 'export'}
+              title={
+                mixSavePending
+                  ? 'Waiting for the latest mix changes to save.'
+                  : mixSaveFailed
+                    ? 'Fix the mix save error before exporting.'
+                    : canExport
+                      ? 'Export the audio mix or separated stems (e)'
+                      : 'Export unlocks after the selected stem set is ready.'
+              }
+            >
+              {mixSavePending ? 'Saving mix…' : 'Export audio'}
+            </button>
+            {popover === 'export' && selectedRun && canExport ? (
+              <MixExportPopover
+                track={track}
+                run={selectedRun}
+                defaultBitrate={defaultBitrate}
+                onClose={() => setPopover(null)}
+                onReveal={onReveal}
+                onError={onError}
+              />
+            ) : null}
+          </span>
+        </div>
+      </div>
+
       {selectedRun && mixable ? (
         <MixPanel
           key={`${track.id}:${selectedRun.id}`}
           run={selectedRun}
           saving={savingMixRunId === selectedRun.id}
+          onSaveStatusChange={handleMixSaveStatusChange}
           onSave={(stems) => onSaveMix(track.id, selectedRun.id, stems)}
         />
       ) : (
@@ -870,19 +923,23 @@ function MixWorkspaceContent({
             ) : RETRYABLE_STATUSES.has(selectedRun.status) ? (
               <>
                 <strong>{selectedRun.processing.label} failed</strong>
-                <p>{selectedRun.error_message || 'Retry this output, or choose a different stem set.'}</p>
+                <p>{selectedRun.error_message || 'Retry this stem set, or choose a different one.'}</p>
                 <div className="mix-blocked-actions">
                   <button
                     type="button"
                     className="button-primary"
                     disabled={retryingRunId === selectedRun.id}
-                    onClick={() => discardRejection(() => onRetryRun(selectedRun.id))}
+                    onClick={() =>
+                      discardRejection(async () => {
+                        const result = await onRetryRun(selectedRun.id)
+                        onSelectRun(result.run.id)
+                      })
+                    }
                   >
                     {retryingRunId === selectedRun.id ? 'Retrying…' : 'Retry'}
                   </button>
                 </div>
                 <StemCreateControl
-                  key={processingSelectionKey(defaultSelection)}
                   stemOptions={stemOptions}
                   qualityOptions={qualityOptions}
                   defaultSelection={defaultSelection}
@@ -893,9 +950,8 @@ function MixWorkspaceContent({
             ) : (
               <>
                 <strong>{selectedRun.processing.label} produced no stems</strong>
-                <p>This output completed without separated stem files. Choose a different stem set.</p>
+                <p>This stem set completed without separated stem files. Choose a different stem set.</p>
                 <StemCreateControl
-                  key={processingSelectionKey(defaultSelection)}
                   stemOptions={stemOptions}
                   qualityOptions={qualityOptions}
                   defaultSelection={defaultSelection}
@@ -909,7 +965,6 @@ function MixWorkspaceContent({
               <StemCreateIcon />
               <strong>Create stems for this song</strong>
               <StemCreateControl
-                key={processingSelectionKey(defaultSelection)}
                 stemOptions={stemOptions}
                 qualityOptions={qualityOptions}
                 defaultSelection={defaultSelection}

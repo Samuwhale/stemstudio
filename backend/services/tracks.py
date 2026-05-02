@@ -149,6 +149,13 @@ def _run_is_active(run: Run) -> bool:
     return run.status in ACTIVE_RUN_STATUSES
 
 
+def _run_visible_in_library(run: Run) -> bool:
+    return not (
+        run.dismissed_at is not None
+        and run.status in {RunStatus.failed.value, RunStatus.cancelled.value}
+    )
+
+
 def serialize_run_summary(run: Run) -> RunSummaryResponse:
     return RunSummaryResponse(
         id=run.id,
@@ -289,6 +296,44 @@ def _summary_mix_run(runs: list[Run], keeper_run_id: str | None) -> Run | None:
     return next((run for run in runs if run.status == RunStatus.completed.value), None)
 
 
+def _summary_latest_run(runs: list[Run]) -> Run | None:
+    return next((run for run in runs if _run_visible_in_library(run)), None)
+
+
+def _pick_reusable_completed_run(
+    track: Track,
+    processing: ProcessingConfig,
+    *,
+    session: Session,
+) -> Run | None:
+    required_generated_stems = set(processing.generated_stems)
+    best_priority: tuple[int, int, int, float] | None = None
+    best_run: Run | None = None
+
+    for run in _sorted_runs(track):
+        if run in session.deleted or run.status != RunStatus.completed.value:
+            continue
+
+        run_processing = resolve_run_processing(run)
+        run_generated_stems = generated_stem_names(run)
+        if run_processing.quality != processing.quality:
+            continue
+        if not required_generated_stems.issubset(run_generated_stems):
+            continue
+
+        priority = (
+            1 if run_processing.visible_stems == processing.visible_stems else 0,
+            1 if run_processing.pipeline_key == processing.pipeline_key else 0,
+            -len(run_generated_stems - required_generated_stems),
+            run.updated_at.timestamp(),
+        )
+        if best_priority is None or priority > best_priority:
+            best_priority = priority
+            best_run = run
+
+    return best_run
+
+
 def set_run_mix(session: Session, track_id: str, run_id: str, payload: RunMixInput) -> Run:
     track = get_track(session, track_id)
     if track is None:
@@ -321,7 +366,10 @@ def set_run_mix(session: Session, track_id: str, run_id: str, payload: RunMixInp
     if missing:
         raise ValueError("Mix must include every stem in the run.")
 
-    run.mix_json = {"version": 1, "stems": normalized}
+    run.mix_json = None if all(_is_default_stem(entry) for entry in normalized) else {
+        "version": 1,
+        "stems": normalized,
+    }
     _touch_track(track)
     session.commit()
     session.refresh(run)
@@ -340,9 +388,13 @@ def _collect_source_peaks(runs: list[Run]) -> list[float]:
     return []
 
 
+def _visible_run_count(runs: list[Run]) -> int:
+    return sum(1 for run in runs if _run_visible_in_library(run))
+
+
 def serialize_track_summary(track: Track) -> TrackSummaryResponse:
     runs = _sorted_runs(track)
-    latest_run = runs[0] if runs else None
+    latest_run = _summary_latest_run(runs)
     mix_summary_run = _summary_mix_run(runs, track.keeper_run_id)
     has_custom_mix = (
         mix_summary_run is not None
@@ -360,7 +412,7 @@ def serialize_track_summary(track: Track) -> TrackSummaryResponse:
         created_at=track.created_at,
         updated_at=track.updated_at,
         latest_run=serialize_run_summary(latest_run) if latest_run else None,
-        run_count=len(runs),
+        run_count=_visible_run_count(runs),
         keeper_run_id=track.keeper_run_id,
         has_custom_mix=has_custom_mix,
         source_peaks=_collect_source_peaks(runs),
@@ -449,28 +501,23 @@ def create_track(
     return track
 
 
-def create_run(track: Track, processing: ProcessingConfig) -> Run:
+def create_run(
+    track: Track,
+    processing: ProcessingConfig,
+    *,
+    allow_reuse_completed: bool = True,
+) -> Run:
     session = object_session(track)
     if session is not None:
         prune_terminal_runs_without_stems(session, track)
         deduplicate_terminal_runs_by_pipeline(session, track)
 
-        required_generated_stems = set(processing.generated_stems)
-        reusable = next(
-            (
-                run
-                for run in track.runs
-                if run not in session.deleted
-                if run.status == RunStatus.completed.value
-                and resolve_run_processing(run).quality == processing.quality
-                and required_generated_stems.issubset(generated_stem_names(run))
-            ),
-            None,
-        )
-        if reusable is not None:
-            update_visible_stems(reusable, processing.visible_stems)
-            _touch_track(track)
-            return reusable
+        if allow_reuse_completed:
+            reusable = _pick_reusable_completed_run(track, processing, session=session)
+            if reusable is not None:
+                update_visible_stems(reusable, processing.visible_stems)
+                _touch_track(track)
+                return reusable
 
     active_same_pipeline = next(
         (
@@ -612,6 +659,21 @@ def request_run_cancellation(session: Session, run_id: str) -> Run:
     return run
 
 
+def dismiss_run(session: Session, run_id: str) -> Run:
+    run = session.get(Run, run_id, options=[selectinload(Run.track)])
+    if run is None:
+        raise LookupError(f"Run '{run_id}' does not exist.")
+    if run.status not in {RunStatus.failed.value, RunStatus.cancelled.value}:
+        raise ValueError("Only failed or cancelled runs can be dismissed from the queue.")
+
+    if run.dismissed_at is None:
+        run.dismissed_at = datetime.utcnow()
+        _touch_track(run.track)
+        session.commit()
+
+    return run
+
+
 def is_cancellation_requested(run: Run) -> bool:
     metadata = run.metadata_json or {}
     return bool(metadata.get("cancellation_requested"))
@@ -637,7 +699,7 @@ def delete_run(session: Session, run_id: str) -> None:
     if run.status not in TERMINAL_RUN_STATUSES:
         raise ValueError("Only completed, failed, or cancelled runs can be deleted.")
     if run.track and run.track.keeper_run_id == run.id:
-        raise ValueError("Clear the preferred output before deleting this run.")
+        raise ValueError("Clear the preferred stem set before deleting this run.")
 
     if run.track is not None:
         _touch_track(run.track)
@@ -661,7 +723,7 @@ def retry_run(session: Session, run_id: str) -> Run:
 
     track = source_run.track
     processing = resolve_run_processing(source_run)
-    new_run = create_run(track, processing)
+    new_run = create_run(track, processing, allow_reuse_completed=False)
     session.commit()
     session.refresh(new_run)
     return new_run

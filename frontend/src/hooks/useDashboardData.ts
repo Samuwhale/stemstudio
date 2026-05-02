@@ -10,6 +10,7 @@ import {
   cleanupTempStorage,
   confirmImportDrafts,
   createRun,
+  dismissRun,
   deleteRun,
   discardImportDraft,
   flushPendingLibraryCleanup,
@@ -39,6 +40,7 @@ import { isActiveRunStatus } from '../components/runStatus'
 import type {
   BatchDeleteResponse,
   ConfirmImportDraftsInput,
+  ConfirmImportDraftsResponse,
   Diagnostics,
   ExportBundleCleanupResponse,
   ImportDraft,
@@ -47,6 +49,7 @@ import type {
   QueueRunEntry,
   RevealFolderInput,
   RunMixStemEntry,
+  RunMutationResponse,
   RunProcessingConfigInput,
   Settings,
   StorageOverview,
@@ -83,6 +86,53 @@ const INITIAL_CONNECTION: Connection = {
 function getErrorMessage(error: unknown) {
   if (error instanceof Error) return error.message
   return 'Unexpected application error.'
+}
+
+function reusesCompletedStemSet(result: RunMutationResponse) {
+  return result.run.status === 'completed'
+}
+
+function describeCreateRunToast(trackLabel: string, result: RunMutationResponse) {
+  if (reusesCompletedStemSet(result)) {
+    return `Reused the matching stem set for ${trackLabel}.`
+  }
+  return `Queued stems for ${trackLabel}.`
+}
+
+function describeRetryRunToast(trackLabel: string, result: RunMutationResponse) {
+  if (reusesCompletedStemSet(result)) {
+    return `Reused the matching stem set for ${trackLabel}.`
+  }
+  return `Queued a retry for ${trackLabel}.`
+}
+
+function describeBatchCreateRunToast(results: PromiseSettledResult<RunMutationResponse>[]) {
+  const fulfilled = results.filter(
+    (result): result is PromiseFulfilledResult<RunMutationResponse> => result.status === 'fulfilled',
+  )
+  const queued = fulfilled.filter((result) => !reusesCompletedStemSet(result.value)).length
+  const reused = fulfilled.length - queued
+  const failed = results.length - fulfilled.length
+
+  if (failed === results.length) {
+    const firstError = results.find(
+      (result): result is PromiseRejectedResult => result.status === 'rejected',
+    )
+    return {
+      tone: 'error' as const,
+      message: getErrorMessage(firstError?.reason),
+    }
+  }
+
+  const parts: string[] = []
+  if (queued > 0) parts.push(`queued ${queued} stem job${queued === 1 ? '' : 's'}`)
+  if (reused > 0) parts.push(`reused ${reused} matching stem set${reused === 1 ? '' : 's'}`)
+  if (failed > 0) parts.push(`${failed} failed`)
+
+  return {
+    tone: failed > 0 ? ('info' as const) : ('success' as const),
+    message: `${parts.join(' · ')}.`,
+  }
 }
 
 function hasActiveWork(track: TrackDetail | null, queueSize: number) {
@@ -160,6 +210,7 @@ export function useDashboardData(selection: { trackId: string | null }) {
   const [creatingRun, setCreatingRun] = useState(false)
   const [cancellingRunId, setCancellingRunId] = useState<string | null>(null)
   const [retryingRunId, setRetryingRunId] = useState<string | null>(null)
+  const [dismissingRunId, setDismissingRunId] = useState<string | null>(null)
   const [deletingRunId, setDeletingRunId] = useState<string | null>(null)
   const [savingSettings, setSavingSettings] = useState(false)
   const [cleaningTempStorage, setCleaningTempStorage] = useState(false)
@@ -451,8 +502,12 @@ export function useDashboardData(selection: { trackId: string | null }) {
     }
   }
 
-  async function handleConfirmDrafts(payload: ConfirmImportDraftsInput) {
-    if (!payload.draft_ids.length) return
+  async function handleConfirmDrafts(
+    payload: ConfirmImportDraftsInput,
+  ): Promise<ConfirmImportDraftsResponse> {
+    if (!payload.draft_ids.length) {
+      throw new Error('Choose at least one import before confirming.')
+    }
     setConfirmingDrafts(true)
     try {
       const result = await confirmImportDrafts(payload)
@@ -479,11 +534,14 @@ export function useDashboardData(selection: { trackId: string | null }) {
 
   // ----- Runs -----
 
-  async function handleCreateRun(trackId: string, processing: RunProcessingConfigInput) {
+  async function handleCreateRun(
+    trackId: string,
+    processing: RunProcessingConfigInput,
+  ): Promise<RunMutationResponse> {
     setCreatingRun(true)
     try {
       const result = await createRun(trackId, processing)
-      pushToast('success', `Queued stems for ${findTrackLabel(trackId)}.`)
+      pushToast('success', describeCreateRunToast(findTrackLabel(trackId), result))
       await refreshDashboard()
       return result
     } catch (error) {
@@ -504,18 +562,8 @@ export function useDashboardData(selection: { trackId: string | null }) {
       const results = await Promise.allSettled(
         trackIds.map((id) => createRun(id, processing)),
       )
-      const ok = results.filter((result) => result.status === 'fulfilled').length
-      const failed = results.length - ok
-      if (failed === 0) {
-        pushToast('success', `Queued ${ok} stem job${ok === 1 ? '' : 's'}.`)
-      } else if (ok === 0) {
-        const firstError = results.find(
-          (result): result is PromiseRejectedResult => result.status === 'rejected',
-        )
-        pushToast('error', getErrorMessage(firstError?.reason))
-      } else {
-        pushToast('error', `Queued ${ok} · ${failed} failed.`)
-      }
+      const feedback = describeBatchCreateRunToast(results)
+      pushToast(feedback.tone, feedback.message)
       await refreshDashboard()
     } finally {
       setCreatingRun(false)
@@ -544,11 +592,11 @@ export function useDashboardData(selection: { trackId: string | null }) {
     }
   }
 
-  async function handleRetryRun(runId: string) {
+  async function handleRetryRun(runId: string): Promise<RunMutationResponse> {
     setRetryingRunId(runId)
     try {
       const result = await retryRun(runId)
-      pushToast('success', `Queued stems for ${findRunTrackLabel(runId)} with the same setup.`)
+      pushToast('success', describeRetryRunToast(findRunTrackLabel(runId), result))
       await refreshDashboard()
       return result
     } catch (error) {
@@ -559,11 +607,24 @@ export function useDashboardData(selection: { trackId: string | null }) {
     }
   }
 
+  async function handleDismissRun(runId: string) {
+    setDismissingRunId(runId)
+    try {
+      await dismissRun(runId)
+      await refreshDashboard()
+    } catch (error) {
+      pushToast('error', getErrorMessage(error))
+      throw error
+    } finally {
+      setDismissingRunId(null)
+    }
+  }
+
   async function handleDeleteRun(runId: string) {
     setDeletingRunId(runId)
     try {
       await deleteRun(runId)
-      pushToast('success', 'Deleted output.')
+      pushToast('success', 'Deleted stem set.')
       await refreshDashboard()
     } catch (error) {
       pushToast('error', getErrorMessage(error))
@@ -577,7 +638,7 @@ export function useDashboardData(selection: { trackId: string | null }) {
     setSettingKeeper(true)
     try {
       await setKeeperRun(trackId, runId)
-      pushToast('success', runId ? 'Marked as preferred output.' : 'Cleared preferred output.')
+      pushToast('success', runId ? 'Marked as preferred stem set.' : 'Cleared preferred stem set.')
       await refreshDashboard()
     } catch (error) {
       pushToast('error', getErrorMessage(error))
@@ -768,7 +829,7 @@ export function useDashboardData(selection: { trackId: string | null }) {
           : ''
       pushToast(
         'success',
-        `Purged ${result.deleted_run_count} non-preferred render${result.deleted_run_count === 1 ? '' : 's'} across ${result.purged_track_count} track${result.purged_track_count === 1 ? '' : 's'} · ${formatReclaimed(result.bytes_reclaimed)} reclaimed${skipped}.`,
+        `Purged ${result.deleted_run_count} non-preferred stem set${result.deleted_run_count === 1 ? '' : 's'} across ${result.purged_track_count} track${result.purged_track_count === 1 ? '' : 's'} · ${formatReclaimed(result.bytes_reclaimed)} reclaimed${skipped}.`,
       )
       await refreshDashboard()
     } catch (error) {
@@ -810,7 +871,7 @@ export function useDashboardData(selection: { trackId: string | null }) {
     setCleaningLibraryRuns(true)
     pushToast(
       'info',
-      'Scheduled non-preferred render cleanup across the library.',
+      'Scheduled non-preferred stem set cleanup across the library.',
       {
         autoDismissMs: PURGE_UNDO_MS,
         action: {
@@ -849,6 +910,7 @@ export function useDashboardData(selection: { trackId: string | null }) {
     creatingRun,
     cancellingRunId,
     retryingRunId,
+    dismissingRunId,
     deletingRunId,
     savingSettings,
     cleaningTempStorage,
@@ -868,6 +930,7 @@ export function useDashboardData(selection: { trackId: string | null }) {
     handleBatchCreateRun,
     handleCancelRun,
     handleRetryRun,
+    handleDismissRun,
     handleDeleteRun,
     handleRevealFolder,
     handleSaveSettings,

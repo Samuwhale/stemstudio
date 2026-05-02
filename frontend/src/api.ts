@@ -21,8 +21,8 @@ import type {
   ResolveYouTubeImportResponse,
   RunDetail,
   RunMixStemEntry,
+  RunMutationResponse,
   RunProcessingConfigInput,
-  RunSummary,
   Settings,
   StorageOverview,
   TempCleanupResponse,
@@ -236,15 +236,19 @@ export function updateTrack(trackId: string, payload: { title?: string; artist?:
 // --- Runs ---
 
 export function createRun(trackId: string, processing: RunProcessingConfigInput) {
-  return postApi<{ run: RunSummary }>(`/api/tracks/${trackId}/runs`, { processing })
+  return postApi<RunMutationResponse>(`/api/tracks/${trackId}/runs`, { processing })
 }
 
 export function cancelRun(runId: string) {
-  return fetchApi<{ run: RunSummary }>(`/api/runs/${runId}/cancel`, { method: 'POST' })
+  return fetchApi<RunMutationResponse>(`/api/runs/${runId}/cancel`, { method: 'POST' })
 }
 
 export function retryRun(runId: string) {
-  return fetchApi<{ run: RunSummary }>(`/api/runs/${runId}/retry`, { method: 'POST' })
+  return fetchApi<RunMutationResponse>(`/api/runs/${runId}/retry`, { method: 'POST' })
+}
+
+export function dismissRun(runId: string) {
+  return fetchApi<RunMutationResponse>(`/api/runs/${runId}/dismiss`, { method: 'POST' })
 }
 
 export async function deleteRun(runId: string) {

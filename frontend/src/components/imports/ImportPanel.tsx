@@ -1,19 +1,23 @@
-import { forwardRef, useEffect, useEffectEvent, useImperativeHandle, useRef, useState } from 'react'
+import { forwardRef, useImperativeHandle, useRef, useState } from 'react'
 import type { DragEvent } from 'react'
 
 import { discardRejection } from '../../async'
 import { useDialogFocus } from '../../hooks/useDialogFocus'
+import { useProcessingSelection } from '../../hooks/useProcessingSelection'
 import { filterImportableMediaFiles } from '../../importableMedia'
 import { stemSelectionLabel } from '../../stems'
 import { StemSelectionPicker } from '../StemSelectionPicker'
 import { formatDuration, formatSize } from '../metrics'
 import { Spinner } from '../feedback/Spinner'
 import type {
+  ConfirmImportDraftsResponse,
   ConfirmImportDraftsInput,
   DraftDuplicateAction,
   ExistingTrackDuplicate,
   ImportDraft,
   QualityOption,
+  ResolveLocalImportResponse,
+  ResolveYouTubeImportResponse,
   RunProcessingConfigInput,
   StemOption,
   UpdateImportDraftInput,
@@ -29,11 +33,11 @@ type ImportPanelProps = {
   resolvingLocalImport: boolean
   confirming: boolean
   onClose: () => void
-  onResolveYouTube: (url: string) => Promise<unknown>
-  onResolveLocalImport: (files: File[]) => Promise<unknown>
+  onResolveYouTube: (url: string) => Promise<ResolveYouTubeImportResponse>
+  onResolveLocalImport: (files: File[]) => Promise<ResolveLocalImportResponse>
   onUpdateDraft: (draftId: string, payload: UpdateImportDraftInput) => Promise<void>
   onDiscardDraft: (draftId: string) => Promise<void>
-  onConfirm: (payload: ConfirmImportDraftsInput) => Promise<unknown>
+  onConfirm: (payload: ConfirmImportDraftsInput) => Promise<ConfirmImportDraftsResponse>
 }
 
 // ---- Icons -----------------------------------------------------------------
@@ -203,7 +207,7 @@ const ImportRow = forwardRef<ImportRowHandle, ImportRowProps>(function ImportRow
               disabled={busy}
               onClick={() => discardRejection(() => onUpdate({ duplicate_action: 'create-new', existing_track_id: null }))}
             >
-              New track
+              Keep as new
             </button>
             <button
               type="button"
@@ -216,7 +220,7 @@ const ImportRow = forwardRef<ImportRowHandle, ImportRowProps>(function ImportRow
                   : draft.existing_track_id,
               }))}
             >
-              Add output
+              Use existing song
             </button>
             <button
               type="button"
@@ -245,6 +249,8 @@ const ImportRow = forwardRef<ImportRowHandle, ImportRowProps>(function ImportRow
           ) : null}
           {draft.duplicate_action === 'skip' ? (
             <span className="import-row-dup-hint">This import will be discarded.</span>
+          ) : draft.duplicate_action === 'reuse-existing' ? (
+            <span className="import-row-dup-hint">No new copy will be added; the existing song remains available.</span>
           ) : null}
         </div>
       ) : null}
@@ -288,28 +294,54 @@ function ImportPanelContent({
   const [localFiles, setLocalFiles] = useState<File[]>([])
   const [dragActive, setDragActive] = useState(false)
   const [sourceError, setSourceError] = useState<string | null>(null)
-  const autoResolvedUrlRef = useRef<string | null>(null)
+  const pendingYouTubeUrlRef = useRef<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
-  function clearSource() {
+  function resetSourceInputs() {
     setYoutubeUrl('')
     setLocalFiles([])
     setDragActive(false)
     setSourceError(null)
-    autoResolvedUrlRef.current = null
+    pendingYouTubeUrlRef.current = null
     if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  function clearYouTubeSource() {
+    setYoutubeUrl('')
+    setSourceError(null)
+    pendingYouTubeUrlRef.current = null
+  }
+
+  function clearLocalSource() {
+    setLocalFiles([])
+    setDragActive(false)
+    setSourceError(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  async function resolveYouTubeSource(url: string) {
+    const trimmed = url.trim()
+    if (!trimmed) return
+    if (pendingYouTubeUrlRef.current === trimmed) return
+
+    setSourceError(null)
+    pendingYouTubeUrlRef.current = trimmed
+    try {
+      await onResolveYouTube(trimmed)
+      resetSourceInputs()
+    } catch (raw) {
+      setSourceError(raw instanceof Error ? raw.message : 'Could not resolve URL.')
+    } finally {
+      if (pendingYouTubeUrlRef.current === trimmed) {
+        pendingYouTubeUrlRef.current = null
+      }
+    }
   }
 
   async function stageYouTube() {
     const trimmed = youtubeUrl.trim()
     if (!trimmed) return
-    setSourceError(null)
-    try {
-      await onResolveYouTube(trimmed)
-      clearSource()
-    } catch (raw) {
-      setSourceError(raw instanceof Error ? raw.message : 'Could not resolve URL.')
-    }
+    await resolveYouTubeSource(trimmed)
   }
 
   async function stageFiles() {
@@ -317,7 +349,7 @@ function ImportPanelContent({
     setSourceError(null)
     try {
       await onResolveLocalImport(localFiles)
-      clearSource()
+      resetSourceInputs()
     } catch (raw) {
       setSourceError(raw instanceof Error ? raw.message : 'Could not stage those files.')
     }
@@ -337,27 +369,6 @@ function ImportPanelContent({
   }
 
   const sourceBusy = resolvingYoutubeImport || resolvingLocalImport
-  const resolveTypedYouTubeUrl = useEffectEvent(async (url: string) => {
-    try {
-      await onResolveYouTube(url)
-      clearSource()
-    } catch (raw) {
-      setSourceError(raw instanceof Error ? raw.message : 'Could not resolve URL.')
-    }
-  })
-
-  // Auto-resolve when a valid YouTube URL is typed/pasted into the field
-  useEffect(() => {
-    const trimmed = youtubeUrl.trim()
-    if (!trimmed || sourceBusy) return
-    if (!/^https?:\/\/(www\.|m\.)?(youtube\.com|youtu\.be)\b/i.test(trimmed)) return
-    if (autoResolvedUrlRef.current === trimmed) return
-    const timer = window.setTimeout(() => {
-      autoResolvedUrlRef.current = trimmed
-      discardRejection(() => resolveTypedYouTubeUrl(trimmed))
-    }, 700)
-    return () => window.clearTimeout(timer)
-  }, [sourceBusy, youtubeUrl])
 
   const playlistHint = youtubeUrl.trim() && looksLikePlaylist(youtubeUrl)
     ? 'Playlists can take up to 30 seconds to resolve.'
@@ -365,7 +376,7 @@ function ImportPanelContent({
 
   // ---- Review section state -----------------------------------------------
 
-  const [selection, setSelection] = useState(defaultSelection)
+  const [selection, setSelection] = useProcessingSelection(defaultSelection)
   const [pendingDraftActions, setPendingDraftActions] = useState<Record<string, number>>({})
   const rowRefs = useRef<Record<string, ImportRowHandle | null>>({})
   const hasPendingDraftActions = Object.keys(pendingDraftActions).length > 0
@@ -440,7 +451,10 @@ function ImportPanelContent({
     >
       <div className="overlay-panel" ref={panelRef} tabIndex={-1}>
         <header className="overlay-head">
-          <h2>Add songs</h2>
+          <div className="overlay-head-copy">
+            <h2>Add songs</h2>
+            <p>Stage files or YouTube links, resolve matches, then choose whether to create stems now.</p>
+          </div>
           <button ref={closeButtonRef} type="button" className="button-secondary" onClick={onClose}>
             Close
           </button>
@@ -455,14 +469,10 @@ function ImportPanelContent({
                   ref={urlInputRef}
                   type="url"
                   className="import-panel-url-input"
-                  placeholder="Paste a YouTube URL or playlist…"
+                  placeholder="Paste YouTube URL or playlist"
                   value={youtubeUrl}
                   onChange={(event) => {
-                    const nextValue = event.target.value
-                    if (nextValue.trim() !== autoResolvedUrlRef.current) {
-                      autoResolvedUrlRef.current = null
-                    }
-                    setYoutubeUrl(nextValue)
+                    setYoutubeUrl(event.target.value)
                     if (sourceError) setSourceError(null)
                   }}
                   onKeyDown={(event) => {
@@ -477,7 +487,7 @@ function ImportPanelContent({
                   <button
                     type="button"
                     className="import-panel-url-clear"
-                    onClick={clearSource}
+                    onClick={clearYouTubeSource}
                     aria-label="Clear URL"
                   >
                     <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden>
@@ -499,7 +509,7 @@ function ImportPanelContent({
             {playlistHint ? (
               <p className="import-panel-hint">{playlistHint}</p>
             ) : !youtubeUrl && !drafts.length ? (
-              <p className="import-panel-hint">Paste a YouTube URL from anywhere in the app to auto-import. Press <kbd>a</kbd> to reopen this panel.</p>
+              <p className="import-panel-hint">Paste a URL here or drop audio and video files below.</p>
             ) : null}
 
             <div className="import-panel-or" aria-hidden>or</div>
@@ -543,8 +553,8 @@ function ImportPanelContent({
               ) : (
                 <span className="import-panel-drop-label">
                   <UploadIcon />
-                  <strong>Drop files here</strong>
-                  <span>Audio or video — or click to browse</span>
+                  <strong>Drop audio or video files</strong>
+                  <span>Click to browse instead</span>
                 </span>
               )}
             </div>
@@ -563,7 +573,7 @@ function ImportPanelContent({
                   type="button"
                   className="button-link"
                   disabled={sourceBusy}
-                  onClick={clearSource}
+                  onClick={clearLocalSource}
                 >
                   Clear
                 </button>
@@ -621,7 +631,9 @@ function ImportPanelContent({
                   ? 'Saving…'
                   : unresolved > 0
                     ? `${unresolved} duplicate${unresolved === 1 ? '' : 's'} to resolve`
-                    : stemSelectionLabel(selection.stems, stemOptions)}
+                    : selection.stems.length
+                      ? `Import these songs, then queue ${stemSelectionLabel(selection.stems, stemOptions)}.`
+                      : 'Import these songs without starting stem creation.'}
               </div>
               <div className="overlay-foot-actions">
                 <button
@@ -629,9 +641,9 @@ function ImportPanelContent({
                   className="button-secondary"
                   disabled={!canConfirm}
                   onClick={() => discardRejection(() => confirm(false))}
-                  title="Add to your library without creating stems. You can create stems later from the song."
+                  title="Add to the library without processing yet. You can create stems from the song list."
                 >
-                  Add without stems
+                  Import only
                 </button>
                 <button
                   type="button"
@@ -639,7 +651,7 @@ function ImportPanelContent({
                   disabled={!canConfirm || selection.stems.length === 0}
                   onClick={() => discardRejection(() => confirm(true))}
                 >
-                  {confirming ? <><Spinner /> Adding…</> : 'Add and create stems'}
+                  {confirming ? <><Spinner /> Importing…</> : 'Import and create stems'}
                 </button>
               </div>
             </div>

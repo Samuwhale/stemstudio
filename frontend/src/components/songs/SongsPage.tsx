@@ -1,13 +1,19 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useEffectEvent, useMemo, useState } from 'react'
 
 import { discardRejection } from '../../async'
 import { useLibraryQuery } from '../../hooks/useLibraryQuery'
+import { trackArtHue } from '../../trackArt'
 import { formatDuration } from '../metrics'
-import { describeRun, isActiveRunStatus, RUN_STATUS_LABELS } from '../runStatus'
-import { SONG_BROWSE_SORT_OPTIONS, trackStageSummary } from '../trackListView'
+import { describeRun, isActiveRunStatus, RUN_STATUS_LABELS, summarizeRunJourney } from '../runStatus'
+import {
+  isTrackExportable,
+  isTrackStemmable,
+  SONG_BROWSE_SORT_OPTIONS,
+  trackStageSummary,
+} from '../trackListView'
 import type { TrackStageSummary } from '../trackListView'
 import type { SongsView } from '../../routes'
-import type { QueueRunEntry, RunSummary, TrackSummary } from '../../types'
+import type { QueueRunEntry, RunMutationResponse, RunSummary, TrackSummary } from '../../types'
 
 type SongsPageProps = {
   view: SongsView
@@ -17,13 +23,14 @@ type SongsPageProps = {
   queueRuns: QueueRunEntry[]
   cancellingRunId: string | null
   retryingRunId: string | null
+  dismissingRunId: string | null
   onViewChange: (view: SongsView) => void
   onOpenTrack: (track: TrackSummary, options?: { runId?: string | null }) => void
-  onCreateStemsForTrack: (trackId: string) => void
   onAddSongs: () => void
   onReviewImports: () => void
   onCancelRun: (runId: string) => Promise<void>
-  onRetryRun: (runId: string) => Promise<unknown>
+  onRetryRun: (runId: string) => Promise<RunMutationResponse>
+  onDismissRun: (runId: string) => Promise<void>
   onBatchCreateStems: (trackIds: string[]) => void
   onBatchExport: (trackIds: string[]) => void
   onBatchDelete: (trackIds: string[]) => void
@@ -36,19 +43,30 @@ type RowStatus = {
   preferred: boolean
 }
 
+type InspectorSelection = {
+  manualTrackId: string | null
+  currentTrackIdAtSelection: string | null
+}
+
 function rowStatusFromStage(stage: TrackStageSummary, track: TrackSummary): RowStatus {
   if (stage.key === 'processing') {
     const run = track.latest_run
-    // Show % once the run has meaningful progress — clearer than the stage label
-    if (run && run.status !== 'queued' && run.progress > 0) {
-      return { text: `${Math.round(run.progress * 100)}%`, tone: 'processing', count: null, preferred: false }
+    if (run) {
+      const status = summarizeRunJourney(run)
+      return {
+        text: status.progressLabel ?? status.label,
+        tone: 'processing',
+        count: null,
+        preferred: false,
+      }
     }
-    const stageLabel = run ? (RUN_STATUS_LABELS[run.status] ?? 'Creating stems') : 'Creating stems'
-    return { text: stageLabel, tone: 'processing', count: null, preferred: false }
+    return { text: RUN_STATUS_LABELS.queued, tone: 'processing', count: null, preferred: false }
   }
   if (stage.key === 'needs-attention') {
+    const run = track.latest_run
+    const status = run ? summarizeRunJourney(run) : null
     return {
-      text: track.latest_run?.status === 'cancelled' ? 'Cancelled' : 'Stem job failed',
+      text: status?.label ?? 'Stem job failed',
       tone: 'attn',
       count: null,
       preferred: false,
@@ -57,7 +75,7 @@ function rowStatusFromStage(stage: TrackStageSummary, track: TrackSummary): RowS
   if (stage.key === 'needs-stems') return { text: null, tone: null, count: null, preferred: false }
   if (stage.key === 'final' || stage.key === 'ready') {
     return {
-      text: track.has_custom_mix ? 'Mix saved' : 'Ready',
+      text: track.has_custom_mix ? 'Mix saved' : 'Ready to export',
       tone: 'ready',
       count: track.run_count > 1 ? track.run_count : null,
       preferred: stage.key === 'final',
@@ -66,11 +84,22 @@ function rowStatusFromStage(stage: TrackStageSummary, track: TrackSummary): RowS
   return { text: null, tone: null, count: null, preferred: false }
 }
 
-/** DJB2 hash → stable hue in [0, 360) for track art background. */
-function trackHue(str: string): number {
-  let h = 5381
-  for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0
-  return Math.abs(h) % 360
+function resolveInspectedTrackId(
+  selection: InspectorSelection,
+  currentTrackId: string | null,
+  browseTrackIds: Set<string>,
+  firstBrowseTrackId: string | null,
+) {
+  const requestedTrackId =
+    currentTrackId !== selection.currentTrackIdAtSelection
+      ? currentTrackId
+      : selection.manualTrackId ?? currentTrackId
+
+  if (requestedTrackId && browseTrackIds.has(requestedTrackId)) {
+    return requestedTrackId
+  }
+
+  return firstBrowseTrackId
 }
 
 function WaveformIcon() {
@@ -127,20 +156,24 @@ function QueueStrip({
   failedRuns,
   cancellingRunId,
   retryingRunId,
+  dismissingRunId,
   onReviewImports,
   onOpenRun,
   onCancelRun,
   onRetryRun,
+  onDismissRun,
 }: {
   draftsCount: number
   activeRuns: QueueRunEntry[]
   failedRuns: QueueRunEntry[]
   cancellingRunId: string | null
   retryingRunId: string | null
+  dismissingRunId: string | null
   onReviewImports: () => void
   onOpenRun: (entry: QueueRunEntry) => void
   onCancelRun: (runId: string) => Promise<void>
-  onRetryRun: (runId: string) => Promise<unknown>
+  onRetryRun: (runId: string) => Promise<RunMutationResponse>
+  onDismissRun: (runId: string) => Promise<void>
 }) {
   const activeCount = activeRuns.length
   const failedCount = failedRuns.length
@@ -226,6 +259,7 @@ function QueueStrip({
             const reason = entry.run.error_message?.trim() || entry.run.status_message?.trim() || 'No detail recorded'
             const label = entry.run.status === 'cancelled' ? 'Cancelled' : 'Failed'
             const retrying = retryingRunId === entry.run.id
+            const dismissing = dismissingRunId === entry.run.id
             return (
               <li key={entry.run.id} className="library-queue-row">
                 <button type="button" className="library-queue-item is-failed" onClick={() => onOpenRun(entry)}>
@@ -237,15 +271,26 @@ function QueueStrip({
                     {reason}
                   </span>
                 </button>
-                <button
-                  type="button"
-                  className="library-queue-cancel"
-                  disabled={retrying}
-                  onClick={() => discardRejection(() => onRetryRun(entry.run.id))}
-                  aria-label={`Retry stem creation for ${entry.track_title}`}
-                >
-                  {retrying ? 'Retrying…' : 'Retry'}
-                </button>
+                <div className="library-queue-actions">
+                  <button
+                    type="button"
+                    className="library-queue-cancel"
+                    disabled={retrying || dismissing}
+                    onClick={() => discardRejection(() => onRetryRun(entry.run.id))}
+                    aria-label={`Retry stem creation for ${entry.track_title}`}
+                  >
+                    {retrying ? 'Retrying…' : 'Retry'}
+                  </button>
+                  <button
+                    type="button"
+                    className="library-queue-cancel library-queue-dismiss"
+                    disabled={retrying || dismissing}
+                    onClick={() => discardRejection(() => onDismissRun(entry.run.id))}
+                    aria-label={`Dismiss ${label.toLowerCase()} queue item for ${entry.track_title}`}
+                  >
+                    {dismissing ? 'Dismissing…' : 'Dismiss'}
+                  </button>
+                </div>
               </li>
             )
           })}
@@ -312,30 +357,38 @@ export function SongsPage({
   queueRuns,
   cancellingRunId,
   retryingRunId,
+  dismissingRunId,
   onViewChange,
   onOpenTrack,
-  onCreateStemsForTrack,
   onAddSongs,
   onReviewImports,
   onCancelRun,
   onRetryRun,
+  onDismissRun,
   onBatchCreateStems,
   onBatchExport,
   onBatchDelete,
 }: SongsPageProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [selectionMode, setSelectionMode] = useState(false)
+  const [inspectorSelection, setInspectorSelection] = useState<InspectorSelection>(() => ({
+    manualTrackId: null,
+    currentTrackIdAtSelection: currentTrackId,
+  }))
   const [deleteArmedSelectionKey, setDeleteArmedSelectionKey] = useState<string | null>(null)
 
+  const handleEscapeSelection = useEffectEvent((event: KeyboardEvent) => {
+    if (event.key !== 'Escape') return
+    setSelected(new Set())
+    setSelectionMode(false)
+    setDeleteArmedSelectionKey(null)
+  })
+
   useEffect(() => {
-    if (selected.size === 0) return
-    function handleKey(event: KeyboardEvent) {
-      if (event.key !== 'Escape') return
-      setSelected(new Set())
-      setDeleteArmedSelectionKey(null)
-    }
-    window.addEventListener('keydown', handleKey)
-    return () => window.removeEventListener('keydown', handleKey)
-  }, [selected.size])
+    if (selected.size === 0 && !selectionMode) return
+    window.addEventListener('keydown', handleEscapeSelection)
+    return () => window.removeEventListener('keydown', handleEscapeSelection)
+  }, [selected.size, selectionMode])
 
   const {
     browseTracks,
@@ -348,6 +401,21 @@ export function SongsPage({
   } = useLibraryQuery(tracks, view, queueRuns)
   const showQueue = stagedImportsCount > 0 || activeRuns.length > 0 || failedRuns.length > 0
   const showFilterTabs = filterTabs.length > 2 // only show when at least 2 distinct stages are present
+  const firstBrowseTrackId = browseTracks[0]?.id ?? null
+  const inspectedTrackId = useMemo(
+    () =>
+      resolveInspectedTrackId(
+        inspectorSelection,
+        currentTrackId,
+        browseTrackIds,
+        firstBrowseTrackId,
+      ),
+    [browseTrackIds, currentTrackId, firstBrowseTrackId, inspectorSelection],
+  )
+  const inspectedTrack = useMemo(
+    () => browseTracks.find((track) => track.id === inspectedTrackId) ?? null,
+    [browseTracks, inspectedTrackId],
+  )
 
   const { selectedIds, stemEligible, exportEligible } = useMemo(() => {
     const ids = Array.from(selected).filter((id) => browseTrackIds.has(id))
@@ -360,7 +428,16 @@ export function SongsPage({
   const selectionKey = useMemo(() => selectedIds.slice().sort().join('|'), [selectedIds])
   const deleteArmed = selectionKey.length > 0 && deleteArmedSelectionKey === selectionKey
   const selectedCount = selectedIds.length
-  const allSelected = browseTracks.length > 0 && browseTracks.every((track) => selectedIds.includes(track.id))
+  const stemSkippedCount = selectedCount - stemEligible.length
+  const exportSkippedCount = selectedCount - exportEligible.length
+  const batchReadiness = [
+    stemEligible.length > 0 ? `${stemEligible.length} can create stems` : null,
+    exportEligible.length > 0 ? `${exportEligible.length} can export` : null,
+    stemEligible.length === 0 && exportEligible.length === 0 ? 'No selected songs are ready for batch actions' : null,
+  ].filter(Boolean).join(' · ')
+  const selectedVisibleIdSet = useMemo(() => new Set(selectedIds), [selectedIds])
+  const allSelected =
+    browseTracks.length > 0 && browseTracks.every((track) => selectedVisibleIdSet.has(track.id))
 
   useEffect(() => {
     if (!deleteArmed) return
@@ -370,6 +447,7 @@ export function SongsPage({
 
   function toggleSelect(trackId: string) {
     setDeleteArmedSelectionKey(null)
+    setSelectionMode(true)
     setSelected((current) => {
       const next = new Set(current)
       if (next.has(trackId)) next.delete(trackId)
@@ -380,27 +458,53 @@ export function SongsPage({
 
   function toggleAll() {
     setDeleteArmedSelectionKey(null)
+    setSelectionMode(true)
     if (allSelected) setSelected(new Set())
     else setSelected(new Set(browseTracks.map((track) => track.id)))
   }
 
   function clearSelection() {
     setDeleteArmedSelectionKey(null)
+    setSelectionMode(false)
     setSelected(new Set())
+  }
+
+  function changeBrowseView(nextView: SongsView, options?: { preserveSelection?: boolean }) {
+    if (!options?.preserveSelection) clearSelection()
+    onViewChange(nextView)
+  }
+
+  function toggleSelectionMode() {
+    setDeleteArmedSelectionKey(null)
+    if (selectionMode) {
+      setSelectionMode(false)
+      setSelected(new Set())
+      return
+    }
+    setSelectionMode(true)
   }
 
   function handleCreateStems() {
     if (!stemEligible.length) return
     setDeleteArmedSelectionKey(null)
-    onBatchCreateStems(stemEligible)
+    onBatchCreateStems(selectedIds)
     setSelected(new Set())
+    setSelectionMode(false)
   }
 
   function handleExport() {
     if (!exportEligible.length) return
     setDeleteArmedSelectionKey(null)
-    onBatchExport(exportEligible)
+    onBatchExport(selectedIds)
     setSelected(new Set())
+    setSelectionMode(false)
+  }
+
+  function selectTrack(track: TrackSummary) {
+    setInspectorSelection({
+      manualTrackId: track.id,
+      currentTrackIdAtSelection: currentTrackId,
+    })
   }
 
   function handleDelete() {
@@ -412,6 +516,7 @@ export function SongsPage({
     setDeleteArmedSelectionKey(null)
     onBatchDelete(selectedIds)
     setSelected(new Set())
+    setSelectionMode(false)
   }
 
   const countLabel =
@@ -424,7 +529,7 @@ export function SongsPage({
           : null
 
   return (
-    <section className="library">
+    <section className={`library ${selectionMode ? 'is-selecting' : ''}`}>
       <div className="library-header">
         {showQueue ? (
           <QueueStrip
@@ -433,6 +538,7 @@ export function SongsPage({
             failedRuns={failedRuns}
             cancellingRunId={cancellingRunId}
             retryingRunId={retryingRunId}
+            dismissingRunId={dismissingRunId}
             onReviewImports={onReviewImports}
             onOpenRun={(entry) => {
               const track = tracks.find((item) => item.id === entry.track_id)
@@ -440,6 +546,7 @@ export function SongsPage({
             }}
             onCancelRun={onCancelRun}
             onRetryRun={onRetryRun}
+            onDismissRun={onDismissRun}
           />
         ) : null}
 
@@ -453,13 +560,13 @@ export function SongsPage({
                   placeholder="Search songs"
                   aria-label="Search songs"
                   value={view.search}
-                  onChange={(event) => onViewChange({ ...view, search: event.target.value })}
+                  onChange={(event) => changeBrowseView({ ...view, search: event.target.value })}
                 />
                 {view.search ? (
                   <button
                     type="button"
                     className="library-search-clear"
-                    onClick={() => onViewChange({ ...view, search: '' })}
+                    onClick={() => changeBrowseView({ ...view, search: '' })}
                     aria-label="Clear search"
                   >
                     <ClearIcon />
@@ -474,7 +581,9 @@ export function SongsPage({
                     className={`library-sort-btn ${view.sort === option.value ? 'is-active' : ''}`}
                     aria-pressed={view.sort === option.value}
                     title={option.label}
-                    onClick={() => onViewChange({ ...view, sort: option.value })}
+                    onClick={() =>
+                      changeBrowseView({ ...view, sort: option.value }, { preserveSelection: true })
+                    }
                   >
                     {option.shortLabel}
                   </button>
@@ -482,6 +591,20 @@ export function SongsPage({
               </div>
               {countLabel ? (
                 <span className="library-count" aria-live="polite">{countLabel}</span>
+              ) : null}
+              {browseTracks.length > 0 ? (
+                <button
+                  type="button"
+                  className={`library-select-btn ${selectionMode ? 'is-active' : ''}`}
+                  onClick={toggleSelectionMode}
+                >
+                  {selectionMode ? 'Done' : 'Select songs'}
+                </button>
+              ) : null}
+              {selectionMode && browseTracks.length > 0 ? (
+                <button type="button" className="library-select-btn" onClick={toggleAll}>
+                  {allSelected ? 'Clear all' : 'Select all'}
+                </button>
               ) : null}
             </div>
 
@@ -494,7 +617,7 @@ export function SongsPage({
                     role="tab"
                     aria-selected={view.filter === tab.value}
                     className={`library-filter ${view.filter === tab.value ? 'is-active' : ''}`}
-                    onClick={() => onViewChange({ ...view, filter: tab.value })}
+                    onClick={() => changeBrowseView({ ...view, filter: tab.value })}
                   >
                     {tab.label}
                     {tab.value !== 'all' ? (
@@ -514,7 +637,7 @@ export function SongsPage({
           {browseTracks.map((track) => {
             const stage = trackStageSummary(track)
             const status = rowStatusFromStage(stage, track)
-            const isActive = currentTrackId === track.id
+            const isActive = inspectedTrack?.id === track.id
             const isSelected = selected.has(track.id)
             const initials = track.title.trim().slice(0, 1).toUpperCase() || 'S'
             const meta = [track.artist, formatDuration(track.duration_seconds)]
@@ -523,6 +646,7 @@ export function SongsPage({
 
             const activeRun =
               track.latest_run && isActiveRunStatus(track.latest_run.status) ? track.latest_run : null
+            const latestRun = track.latest_run
             // Only show the progress bar once work has actually started (not while queued)
             const showProgressBar = !!activeRun && activeRun.status !== 'queued' && activeRun.progress > 0
             return (
@@ -545,16 +669,24 @@ export function SongsPage({
                 <button
                   type="button"
                   className="song-row-open"
-                  onClick={() => onOpenTrack(track)}
+                  title={`Show details for ${track.title}`}
+                  aria-label={`Show details for ${track.title}`}
+                  onClick={() => {
+                    if (selectionMode) {
+                      toggleSelect(track.id)
+                      return
+                    }
+                    selectTrack(track)
+                  }}
                 >
                   <span
                     className="song-row-art"
                     aria-hidden
                     data-stage={stage.key}
-                    style={{ '--art-hue': String(trackHue(track.title)) } as React.CSSProperties}
+                    style={{ '--art-hue': String(trackArtHue(track.title)) } as React.CSSProperties}
                   >
                     {track.thumbnail_url ? <img src={track.thumbnail_url} alt="" loading="lazy" /> : initials}
-                    {stage.key !== 'needs-stems' ? (
+                    {stage.key === 'processing' || stage.key === 'needs-attention' ? (
                       <span className="song-row-art-dot" aria-hidden />
                     ) : null}
                   </span>
@@ -571,32 +703,52 @@ export function SongsPage({
                     <button
                       type="button"
                       className="song-row-stem-action"
-                      onClick={() => onCreateStemsForTrack(track.id)}
+                      onClick={() => onBatchCreateStems([track.id])}
                       aria-label={`Create stems for ${track.title}`}
                     >
                       Create stems
                     </button>
-                  ) : stage.key === 'needs-attention' && track.latest_run ? (
+                  ) : stage.key === 'needs-attention' && latestRun ? (
                     <button
                       type="button"
                       className="song-row-retry-action"
-                      disabled={retryingRunId === track.latest_run.id}
-                      onClick={() => discardRejection(() => onRetryRun(track.latest_run!.id))}
+                      disabled={retryingRunId === latestRun.id}
+                      onClick={() => discardRejection(() => onRetryRun(latestRun.id))}
                       aria-label={`Retry stem creation for ${track.title}`}
                     >
-                      {retryingRunId === track.latest_run.id ? 'Retrying…' : 'Retry'}
+                      {retryingRunId === latestRun.id ? 'Retrying…' : 'Retry'}
                     </button>
-                  ) : status.text ? (
-                    <span className={`song-row-status ${status.tone ? `is-${status.tone}` : ''} ${status.preferred ? 'is-preferred' : ''}`}>
+                  ) : stage.key === 'processing' ? (
+                    <button
+                      type="button"
+                      className="song-row-status song-row-open-action is-processing"
+                      onClick={() => onOpenTrack(track)}
+                      aria-label={`View stem progress for ${track.title}`}
+                      title={status.text ?? 'Creating stems'}
+                    >
+                      View progress
+                    </button>
+                  ) : status.text && (stage.key === 'ready' || stage.key === 'final') ? (
+                    <button
+                      type="button"
+                      className={`song-row-status song-row-open-action ${status.tone ? `is-${status.tone}` : ''} ${status.preferred ? 'is-preferred' : ''}`}
+                      onClick={() => onOpenTrack(track)}
+                      aria-label={`Open ${track.title} in mix`}
+                      title={status.text}
+                    >
                       {status.preferred ? (
-                        <span className="song-row-status-star" aria-label="Preferred output" title="Preferred output">★</span>
+                        <span className="song-row-status-star" aria-label="Preferred stem set" title="Preferred stem set">★</span>
                       ) : null}
-                      {status.text}
+                      Open mix
                       {status.count ? (
-                        <span className="song-row-status-count" aria-label={`${status.count} outputs`}>
+                        <span className="song-row-status-count" aria-label={`${status.count} stem sets`}>
                           {status.count}
                         </span>
                       ) : null}
+                    </button>
+                  ) : status.text ? (
+                    <span className={`song-row-status ${status.tone ? `is-${status.tone}` : ''}`}>
+                      {status.text}
                     </span>
                   ) : null}
                 </div>
@@ -604,6 +756,17 @@ export function SongsPage({
             )
           })}
         </div>
+      ) : null}
+
+      {inspectedTrack ? (
+        <LibraryInspector
+          track={inspectedTrack}
+          retryingRunId={retryingRunId}
+          onOpenTrack={onOpenTrack}
+          onRetryRun={onRetryRun}
+          onCreateStems={() => onBatchCreateStems([inspectedTrack.id])}
+          onExport={() => onBatchExport([inspectedTrack.id])}
+        />
       ) : tracks.length > 0 ? (
         <div className="library-empty">
           {view.filter !== 'all' ? (
@@ -612,7 +775,7 @@ export function SongsPage({
               <button
                 type="button"
                 className="button-secondary"
-                onClick={() => onViewChange({ ...view, filter: 'all' })}
+                onClick={() => changeBrowseView({ ...view, filter: 'all' })}
               >
                 Show all songs
               </button>
@@ -623,7 +786,7 @@ export function SongsPage({
               <button
                 type="button"
                 className="button-secondary"
-                onClick={() => onViewChange({ ...view, search: '' })}
+                onClick={() => changeBrowseView({ ...view, search: '' })}
               >
                 Clear search
               </button>
@@ -643,28 +806,34 @@ export function SongsPage({
 
       {selectedCount > 0 ? (
         <div className="batch-bar" role="toolbar" aria-label="Batch actions">
-          <span className="batch-bar-count" aria-live="polite">
-            {selectedCount} selected
+          <span className="batch-bar-copy" aria-live="polite">
+            <strong>{selectedCount} selected</strong>
+            <span>{batchReadiness}</span>
           </span>
           <div className="batch-bar-spacer" />
           {!deleteArmed ? (
             <>
-              {!allSelected ? (
-                <button type="button" className="button-link" onClick={toggleAll}>
-                  Select all
-                </button>
-              ) : null}
               <button type="button" className="button-link" onClick={clearSelection}>
                 Clear
               </button>
               {stemEligible.length > 0 ? (
-                <button type="button" className="button-primary" onClick={handleCreateStems}>
-                  Create stems for {stemEligible.length}
+                <button
+                  type="button"
+                  className="button-primary"
+                  onClick={handleCreateStems}
+                  title={stemSkippedCount > 0 ? `${stemSkippedCount} selected song${stemSkippedCount === 1 ? ' is' : 's are'} already creating stems.` : undefined}
+                >
+                  Create stems
                 </button>
               ) : null}
               {exportEligible.length > 0 ? (
-                <button type="button" className="button-secondary" onClick={handleExport}>
-                  Export {exportEligible.length}
+                <button
+                  type="button"
+                  className="button-secondary"
+                  onClick={handleExport}
+                  title={exportSkippedCount > 0 ? `${exportSkippedCount} selected song${exportSkippedCount === 1 ? ' is' : 's are'} not ready to export yet.` : undefined}
+                >
+                  Export audio
                 </button>
               ) : null}
               <button type="button" className="button-secondary" onClick={handleDelete}>
@@ -686,5 +855,90 @@ export function SongsPage({
       ) : null}
       </div>
     </section>
+  )
+}
+
+function LibraryInspector({
+  track,
+  retryingRunId,
+  onOpenTrack,
+  onRetryRun,
+  onCreateStems,
+  onExport,
+}: {
+  track: TrackSummary
+  retryingRunId: string | null
+  onOpenTrack: (track: TrackSummary, options?: { runId?: string | null }) => void
+  onRetryRun: (runId: string) => Promise<RunMutationResponse>
+  onCreateStems: () => void
+  onExport: () => void
+}) {
+  const stage = trackStageSummary(track)
+  const status = rowStatusFromStage(stage, track)
+  const latestRun = track.latest_run
+  const exportable = isTrackExportable(track)
+  const stemmable = isTrackStemmable(track)
+  const retrying = !!latestRun && retryingRunId === latestRun.id
+  const meta = [track.artist, formatDuration(track.duration_seconds)].filter(Boolean).join(' · ')
+
+  return (
+    <aside className="library-inspector" aria-label="Selected song">
+      <div className="library-inspector-title">
+        <strong>{track.title}</strong>
+        {meta ? <span>{meta}</span> : null}
+      </div>
+
+      <div className="library-inspector-status">
+        <span className={`library-inspector-state is-${stage.key}`}>{stage.label}</span>
+        <p>{status.text ?? stage.description}</p>
+      </div>
+
+      <div className="library-inspector-actions">
+        {stage.key === 'needs-stems' ? (
+          <button type="button" className="button-primary" onClick={onCreateStems}>
+            Create stems
+          </button>
+        ) : stage.key === 'needs-attention' && latestRun ? (
+          <button
+            type="button"
+            className="button-primary"
+            disabled={retrying}
+            onClick={() => discardRejection(() => onRetryRun(latestRun.id))}
+          >
+            {retrying ? 'Retrying…' : 'Retry stem job'}
+          </button>
+        ) : isActiveRunStatus(latestRun?.status ?? '') ? (
+          <button type="button" className="button-primary" onClick={() => onOpenTrack(track)}>
+            View progress
+          </button>
+        ) : exportable ? (
+          <button type="button" className="button-primary" onClick={() => onOpenTrack(track)}>
+            Open mix
+          </button>
+        ) : null}
+
+        {exportable ? (
+          <button type="button" className="button-secondary" onClick={onExport}>
+            Export audio
+          </button>
+        ) : null}
+        {stemmable && stage.key !== 'needs-stems' ? (
+          <button type="button" className="button-secondary" onClick={onCreateStems}>
+            Create another stem set
+          </button>
+        ) : null}
+      </div>
+
+      <dl className="library-inspector-facts">
+        <div>
+          <dt>Stem sets</dt>
+          <dd>{track.run_count || 'None yet'}</dd>
+        </div>
+        <div>
+          <dt>Mix</dt>
+          <dd>{track.has_custom_mix ? 'Saved' : exportable ? 'Default levels' : 'Not ready'}</dd>
+        </div>
+      </dl>
+    </aside>
   )
 }

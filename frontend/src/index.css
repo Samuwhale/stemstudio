@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400..700&family=Bricolage+Grotesk:opsz,wght@12..96,400..800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400..700&family=Manrope:wght@400..800&display=swap');
 
 @font-face {
   font-family: 'Commit Mono';
@@ -23,36 +23,36 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 
-  /* Surfaces — warm cream paper, all hues anchored to the accent family. */
-  --bg:             oklch(97.5% 0.012 80);
-  --surface:        oklch(99%   0.006 80);
-  --surface-2:      oklch(95.2% 0.014 78);
-  --surface-sunk:   oklch(94%   0.016 76);
-  --surface-hover:  oklch(92.5% 0.020 72);
-  --surface-active: oklch(89%   0.024 68);
+  /* Surfaces — flat studio utility neutrals. */
+  --bg:             #f7faf8;
+  --surface:        #ffffff;
+  --surface-2:      #f1f4f2;
+  --surface-sunk:   #ebefec;
+  --surface-hover:  #e5e9e6;
+  --surface-active: #dfe5e2;
 
-  /* Borders — same hue family, low chroma. */
-  --border:         oklch(86%   0.018 72);
-  --border-soft:    oklch(91%   0.014 74);
-  --border-strong:  oklch(74%   0.024 66);
+  /* Borders. */
+  --border:         #cfd8d4;
+  --border-soft:    #e0e7e3;
+  --border-strong:  #7b8a85;
 
-  /* Ink — warm graphite, never pure black. */
-  --text:           oklch(22%   0.014 60);
-  --text-2:         oklch(32%   0.014 60);
-  --text-muted:     oklch(50%   0.018 64);
-  --text-faint:     oklch(64%   0.020 68);
+  /* Ink. */
+  --text:           #181c1b;
+  --text-2:         #2f3a37;
+  --text-muted:     #5f6f6a;
+  --text-faint:     #889691;
 
-  /* Accent — single warm copper, used as a scarce resource. */
-  --accent:         oklch(58%   0.13  55);
-  --accent-press:   oklch(50%   0.14  50);
+  /* Accent — reserved for primary actions and active signal. */
+  --accent:         #00695c;
+  --accent-press:   #004f45;
   --accent-dim:     color-mix(in oklch, var(--accent) 14%, transparent);
-  --accent-ink:     oklch(99%   0.006 80);
+  --accent-ink:     #ffffff;
 
-  /* Status — warm-leaning, distinguishable from accent. */
-  --ok:             oklch(58%   0.11 145);
-  --warn:           oklch(66%   0.13  72);
-  --err:            oklch(56%   0.17  30);
-  --info:           oklch(58%   0.10 230);
+  /* Status. */
+  --ok:             #007a5a;
+  --warn:           #b98900;
+  --err:            #ba1a1a;
+  --info:           #2c6f83;
 
   /* Spacing — 4pt rhythm. */
   --space-2xs: 2px;
@@ -65,13 +65,13 @@
 
   /* Radius. */
   --radius-xs: 4px;
-  --radius-sm: 8px;
-  --radius-md: 14px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
 
   /* Type stacks. */
-  --font-display: 'Bricolage Grotesk', 'Archivo', -apple-system, system-ui, sans-serif;
-  --font-sans:    'Archivo', -apple-system, system-ui, sans-serif;
-  --font-mono:    'Commit Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --font-display: 'Manrope', 'Inter', -apple-system, system-ui, sans-serif;
+  --font-sans:    'Manrope', 'Inter', -apple-system, system-ui, sans-serif;
+  --font-mono:    'Inter', 'Commit Mono', ui-monospace, 'SF Mono', Menlo, monospace;
 
   --line-height-base: 1.5;
   --line-height-mono: 1.6;
@@ -94,61 +94,60 @@
   :root:not([data-theme='light']) {
     color-scheme: dark;
 
-    /* Warm graphite — same hue family as light, just inverted lightness. */
-    --bg:             oklch(18%   0.010 60);
-    --surface:        oklch(22%   0.012 60);
-    --surface-2:      oklch(25%   0.014 62);
-    --surface-sunk:   oklch(15%   0.010 60);
-    --surface-hover:  oklch(28%   0.016 64);
-    --surface-active: oklch(33%   0.018 66);
+    --bg:             #131817;
+    --surface:        #1b2220;
+    --surface-2:      #222b28;
+    --surface-sunk:   #101514;
+    --surface-hover:  #2b3532;
+    --surface-active: #34403c;
 
-    --border:         oklch(32%   0.014 62);
-    --border-soft:    oklch(28%   0.012 60);
-    --border-strong:  oklch(48%   0.020 66);
+    --border:         #384743;
+    --border-soft:    #2c3935;
+    --border-strong:  #60716c;
 
-    --text:           oklch(95%   0.010 80);
-    --text-2:         oklch(86%   0.012 78);
-    --text-muted:     oklch(68%   0.016 74);
-    --text-faint:     oklch(54%   0.018 70);
+    --text:           #eef5f2;
+    --text-2:         #d7e2de;
+    --text-muted:     #a7b8b2;
+    --text-faint:     #74857f;
 
-    --accent:         oklch(72%   0.13  60);
-    --accent-press:   oklch(78%   0.13  60);
-    --accent-ink:     oklch(16%   0.012 60);
+    --accent:         #84d5c5;
+    --accent-press:   #a0f2e1;
+    --accent-ink:     #08201b;
 
-    --ok:             oklch(72%   0.11 145);
-    --warn:           oklch(76%   0.14  72);
-    --err:            oklch(68%   0.17  30);
-    --info:           oklch(70%   0.10 230);
+    --ok:             #7bd1a4;
+    --warn:           #fbbc00;
+    --err:            #ffb4ab;
+    --info:           #8bcadd;
   }
 }
 
 [data-theme='dark'] {
   color-scheme: dark;
 
-  --bg:             oklch(18%   0.010 60);
-  --surface:        oklch(22%   0.012 60);
-  --surface-2:      oklch(25%   0.014 62);
-  --surface-sunk:   oklch(15%   0.010 60);
-  --surface-hover:  oklch(28%   0.016 64);
-  --surface-active: oklch(33%   0.018 66);
+  --bg:             #131817;
+  --surface:        #1b2220;
+  --surface-2:      #222b28;
+  --surface-sunk:   #101514;
+  --surface-hover:  #2b3532;
+  --surface-active: #34403c;
 
-  --border:         oklch(32%   0.014 62);
-  --border-soft:    oklch(28%   0.012 60);
-  --border-strong:  oklch(48%   0.020 66);
+  --border:         #384743;
+  --border-soft:    #2c3935;
+  --border-strong:  #60716c;
 
-  --text:           oklch(95%   0.010 80);
-  --text-2:         oklch(86%   0.012 78);
-  --text-muted:     oklch(68%   0.016 74);
-  --text-faint:     oklch(54%   0.018 70);
+  --text:           #eef5f2;
+  --text-2:         #d7e2de;
+  --text-muted:     #a7b8b2;
+  --text-faint:     #74857f;
 
-  --accent:         oklch(72%   0.13  60);
-  --accent-press:   oklch(78%   0.13  60);
-  --accent-ink:     oklch(16%   0.012 60);
+  --accent:         #84d5c5;
+  --accent-press:   #a0f2e1;
+  --accent-ink:     #08201b;
 
-  --ok:             oklch(72%   0.11 145);
-  --warn:           oklch(76%   0.14  72);
-  --err:            oklch(68%   0.17  30);
-  --info:           oklch(70%   0.10 230);
+  --ok:             #7bd1a4;
+  --warn:           #fbbc00;
+  --err:            #ffb4ab;
+  --info:           #8bcadd;
 }
 
 * {
