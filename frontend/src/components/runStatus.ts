@@ -14,21 +14,18 @@ export function isActiveRunStatus(status: string): boolean {
 }
 
 // Detailed labels used where the user benefits from knowing the exact pipeline
-// stage (activity list / stepper). Kept fine-grained so a 90-second job still
-// feels alive.
+// stage. Kept fine-grained so a 90-second job still feels alive.
 export const RUN_STATUS_LABELS: Record<string, string> = {
   queued: 'Queued',
   preparing: 'Preparing audio',
   separating: 'Separating stems',
-  exporting: 'Building exports',
+  exporting: 'Writing stem files',
   completed: 'Completed',
   failed: 'Failed',
   cancelled: 'Cancelled',
 }
 
-// Short labels for compact surfaces (run chips, inline summaries). All active
-// pipeline stages collapse into 'Processing' — the stepper below still shows
-// which stage, so the chip doesn't need to repeat it.
+// Short labels for compact surfaces (run chips, inline summaries).
 export const RUN_STATUS_SHORT_LABELS: Record<string, string> = {
   queued: 'Queued',
   preparing: 'Processing',
@@ -43,7 +40,7 @@ export const RUN_STAGE_DESCRIPTIONS: Record<string, string> = {
   queued: 'waiting for a worker',
   preparing: 'decoding + normalising',
   separating: 'creating stems',
-  exporting: 'writing stem exports',
+  exporting: 'saving separated files',
 }
 
 export function describeRun(run: RunSummary): string {
@@ -68,7 +65,7 @@ export function summarizeRunJourney(run: RunSummary): RunJourneyStatus {
 
   if (run.status === 'failed' || run.status === 'cancelled') {
     return {
-      label: run.status === 'cancelled' ? 'Cancelled' : 'Stem job failed',
+      label: run.status === 'cancelled' ? 'Cancelled' : 'Stem set failed',
       detail: run.error_message?.trim() || run.status_message?.trim() || 'Retry this stem set or create a different one.',
       tone: 'attention',
       progressLabel: null,

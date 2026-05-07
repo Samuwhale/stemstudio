@@ -36,7 +36,7 @@ export function selectTracksByIds(tracks: TrackSummary[], selectedTrackIds: stri
 
 export function describeTrackStemQueuePlan(track: TrackSummary): string {
   const stage = trackStageSummary(track)
-  if (stage.key === 'needs-stems') return 'Will create stems'
+  if (stage.key === 'needs-stems') return 'Will create first stem set'
   if (stage.key === 'needs-attention') return 'Will queue a fresh stem set'
   if (stage.key === 'ready' || stage.key === 'final') return 'Will create another stem set'
   return 'Already creating stems'
@@ -102,18 +102,18 @@ export function trackStageSummary(track: TrackSummary): TrackStageSummary {
   if (track.keeper_run_id) {
     return {
       key: 'final',
-      label: track.has_custom_mix ? 'Saved mix' : 'Preferred export',
+      label: track.has_custom_mix ? 'Saved mix' : 'Preferred stem set',
       description: track.has_custom_mix
         ? 'Your preferred stem set has saved mix changes and is ready to export.'
-        : 'A preferred stem set is ready to mix or export.',
+        : 'A preferred stem set is ready to adjust or export.',
     }
   }
 
   if (latestStatus === 'failed' || latestStatus === 'cancelled') {
     return {
       key: 'needs-attention',
-      label: 'Stem job failed',
-      description: 'Retry the latest stem job or create a different stem set.',
+      label: 'Stem set failed',
+      description: 'Retry the latest stem set or create a different one.',
     }
   }
 
@@ -138,7 +138,7 @@ export function trackStageSummary(track: TrackSummary): TrackStageSummary {
   return {
     key: 'needs-stems',
     label: 'No stems',
-    description: 'Create stems before this song can be mixed or exported.',
+    description: 'Create a stem set before this song can be mixed or exported.',
   }
 }
 

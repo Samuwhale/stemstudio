@@ -148,11 +148,6 @@ function initialStems(run: RunDetail): StemRow[] {
   })
 }
 
-function stemDownloadName(kind: string, label: string): string {
-  const ext = kind.startsWith('stem-mp3:') ? 'mp3' : 'wav'
-  return `${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.${ext}`
-}
-
 function stemName(kind: string) {
   return kind.startsWith(STEM_KIND_PREFIX) ? kind.slice(STEM_KIND_PREFIX.length) : kind
 }
@@ -198,14 +193,6 @@ function formatTime(seconds: number) {
   const minutes = Math.floor(total / 60)
   const remaining = (total % 60).toString().padStart(2, '0')
   return `${minutes}:${remaining}`
-}
-
-function DownloadIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-      <path d="M6 1v7M3 6l3 3 3-3M1 10.5h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
 }
 
 function PlayGlyph() {
@@ -278,47 +265,51 @@ function QuickMixStrip({
   if (!hasVocals && !resetAvailable) return null
 
   return (
-    <div className="mix-presets" role="toolbar" aria-label="Quick mix">
-      {hasVocals ? (
-        <>
-          <button
-            type="button"
-            className="mix-preset"
-            onClick={() => onApply('remove-vocals')}
-            title="Mute vocal stems and keep the rest audible."
-          >
-            Remove vocals
-          </button>
-          {hasLeadAndBacking ? (
+    <div className="mix-presets" aria-label="Mix presets">
+      <span className="mix-presets-label">Mix presets</span>
+      <div className="mix-presets-actions" role="toolbar" aria-label="Mix presets">
+        {hasVocals ? (
+          <>
             <button
               type="button"
               className="mix-preset"
-              onClick={() => onApply('keep-backing')}
-              title="Mute lead vocals while keeping backing vocals in the mix."
+              onClick={() => onApply('remove-vocals')}
+              title="Mute vocal stems and keep the rest audible in exports."
             >
-              Keep backing vocals
+              Make instrumental
             </button>
-          ) : null}
+            {hasLeadAndBacking ? (
+              <button
+                type="button"
+                className="mix-preset"
+                onClick={() => onApply('keep-backing')}
+                title="Mute lead vocals while keeping backing vocals in the exported mix."
+              >
+                Keep backing vocals
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="mix-preset"
+              onClick={() => onApply('vocals-only')}
+              title="Mute non-vocal stems for a vocals-only export."
+            >
+              Vocals only
+            </button>
+          </>
+        ) : null}
+        {resetAvailable ? (
           <button
             type="button"
             className="mix-preset"
-            onClick={() => onApply('vocals-only')}
-            title="Mute non-vocal stems for a vocals-only export."
+            onClick={() => onApply('reset')}
+            title="Restore every stem to 0 dB and unmuted."
           >
-            Vocals only
+            Reset
           </button>
-        </>
-      ) : null}
-      {resetAvailable ? (
-        <button
-          type="button"
-          className="mix-preset"
-          onClick={() => onApply('reset')}
-          title="Restore every stem to 0 dB and unmuted."
-        >
-          Reset mix
-        </button>
-      ) : null}
+        ) : null}
+      </div>
+      <span className="mix-presets-hint">Presets change export</span>
     </div>
   )
 }
@@ -486,7 +477,6 @@ export function MixPanel({ run, onSave, saving, onSaveStatusChange }: MixPanelPr
   return (
     <>
       <QuickMixStrip stems={stems} resetAvailable={resetAvailable} onApply={applyQuickMix} />
-
       <div className="mix-rows" role="group" aria-label="Stem mixer" data-audio-loading={playLoading || undefined}>
         {stems.map((stem, index) => {
           const silenced = stem.muted || (anySoloed && !stem.soloed)
@@ -524,20 +514,10 @@ export function MixPanel({ run, onSave, saving, onSaveStatusChange }: MixPanelPr
                     onClick={() => updateStem(index, { soloed: !stem.soloed })}
                     aria-pressed={stem.soloed}
                     aria-label={stem.soloed ? `Stop solo preview for ${stem.label}` : `Solo preview ${stem.label}`}
-                    title={stem.soloed ? `Stop solo preview for ${stem.label}` : `Solo preview only. Exports use saved mutes and levels.`}
+                    title={stem.soloed ? `Stop solo preview for ${stem.label}` : `Solo ${stem.label} in preview. Exports use saved mutes and levels.`}
                   >
                     Solo
                   </button>
-                  <a
-                    href={stem.url}
-                    download={stemDownloadName(stem.kind, stem.label)}
-                    className="stem-toggle stem-toggle-dl"
-                    aria-label={`Download ${stem.label}`}
-                    title={`Download ${stem.label}`}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <DownloadIcon />
-                  </a>
                 </div>
               </div>
               <div className="stem-row-wave">
@@ -601,7 +581,9 @@ export function MixPanel({ run, onSave, saving, onSaveStatusChange }: MixPanelPr
           <span className="mix-time-total">{formatTime(mixer.duration)}</span>
         </span>
         <MixStateLabel stems={stems} anySoloed={anySoloed} />
-        <span className="mix-transport-note">Export uses saved mutes and levels. Solo only changes preview.</span>
+        {anySoloed ? (
+          <span className="mix-transport-note">Solo only changes preview. Exports use saved mutes and levels.</span>
+        ) : null}
         {showTransportSave ? (
           <>
             <span className="mix-transport-sep" aria-hidden>·</span>

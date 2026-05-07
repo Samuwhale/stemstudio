@@ -17,6 +17,7 @@ type StemSelectionPickerProps = {
   stemOptions: StemOption[]
   qualityOptions: QualityOption[]
   disabled?: boolean
+  compact?: boolean
   onChange: (next: RunProcessingConfigInput) => void
 }
 
@@ -25,6 +26,7 @@ export function StemSelectionPicker({
   stemOptions,
   qualityOptions,
   disabled = false,
+  compact = false,
   onChange,
 }: StemSelectionPickerProps) {
   const selected = new Set(value.stems)
@@ -64,10 +66,26 @@ export function StemSelectionPicker({
     onChange({ ...value, quality })
   }
 
+  const qualityControl = visibleQualityOptions.length > 1 ? (
+    <div className="stem-quality" role="group" aria-label="Separation quality">
+      {visibleQualityOptions.map((option) => (
+        <button
+          key={option.key}
+          type="button"
+          className={`segmented ${value.quality === option.key ? 'segmented-active' : ''}`}
+          disabled={disabled}
+          onClick={() => setQuality(option.key)}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  ) : null
+
   return (
-    <div className="stem-selection-picker">
+    <div className={`stem-selection-picker ${compact ? 'stem-selection-picker-compact' : ''}`}>
       {presets.length > 0 ? (
-        <div className="stem-preset-row" role="group" aria-label="Separation goals">
+        <div className={`stem-preset-row ${compact ? 'stem-preset-row-compact' : ''}`} role="group" aria-label="Separation goals">
           {presets.map((preset) => (
             <button
               key={preset.label}
@@ -86,7 +104,7 @@ export function StemSelectionPicker({
 
       <details className="stem-manual" open={presets.length === 0 || undefined}>
         <summary>
-          <span>Manual stems</span>
+          <span>{compact ? 'Customize' : 'Manual stems'}</span>
           <strong>{stemSelectionSummary(value.stems, stemOptions)}</strong>
         </summary>
         <div className="stem-picker-groups">
@@ -116,26 +134,13 @@ export function StemSelectionPicker({
               selected={selected}
               disabled={disabled}
               onToggle={toggleStem}
-            />
-          ) : null}
+              />
+            ) : null}
+          {compact ? qualityControl : null}
         </div>
       </details>
 
-      {visibleQualityOptions.length > 1 ? (
-        <div className="stem-quality" role="group" aria-label="Separation quality">
-          {visibleQualityOptions.map((option) => (
-            <button
-              key={option.key}
-              type="button"
-              className={`segmented ${value.quality === option.key ? 'segmented-active' : ''}`}
-              disabled={disabled}
-              onClick={() => setQuality(option.key)}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      ) : null}
+      {compact ? null : qualityControl}
     </div>
   )
 }
@@ -201,8 +206,8 @@ function buildStemPresets(available: Set<string>): StemPreset[] {
   if (hasAll(available, ['instrumental', 'vocals'])) {
     presets.push({
       label: 'Karaoke',
-      description: 'Instrumental plus vocals',
-      title: 'Create instrumental and vocal stems for karaoke or acapella mixes.',
+      description: 'Instrumental and vocals',
+      title: 'Create a stem set for muting vocals, making instrumentals, or exporting vocals alone.',
       stems: ['instrumental', 'vocals'],
     })
   }
@@ -210,7 +215,7 @@ function buildStemPresets(available: Set<string>): StemPreset[] {
   if (hasAll(available, ['instrumental', 'lead_vocals', 'backing_vocals'])) {
     presets.push({
       label: 'Keep backing vocals',
-      description: 'Lead and backing separated',
+      description: 'Lead separated from backing',
       title: 'Separate lead and backing vocals so backing vocals can stay in the mix.',
       stems: ['instrumental', 'lead_vocals', 'backing_vocals'],
     })

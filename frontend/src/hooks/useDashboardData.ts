@@ -125,7 +125,7 @@ function describeBatchCreateRunToast(results: PromiseSettledResult<RunMutationRe
   }
 
   const parts: string[] = []
-  if (queued > 0) parts.push(`queued ${queued} stem job${queued === 1 ? '' : 's'}`)
+  if (queued > 0) parts.push(`queued ${queued} stem set${queued === 1 ? '' : 's'}`)
   if (reused > 0) parts.push(`reused ${reused} matching stem set${reused === 1 ? '' : 's'}`)
   if (failed > 0) parts.push(`${failed} failed`)
 
@@ -518,7 +518,7 @@ export function useDashboardData(selection: { trackId: string | null }) {
         ? `${result.reused_track_count} reused`
         : ''
       const queuedMsg = result.queued_run_count
-        ? `${result.queued_run_count} stem job${result.queued_run_count === 1 ? '' : 's'} queued`
+        ? `${result.queued_run_count} stem set${result.queued_run_count === 1 ? '' : 's'} queued`
         : 'imported without queueing'
       const parts = [createdMsg, reusedMsg, queuedMsg].filter(Boolean)
       pushToast('success', `Imported: ${parts.join(' · ')}.`)

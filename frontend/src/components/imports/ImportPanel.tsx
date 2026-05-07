@@ -312,13 +312,6 @@ function ImportPanelContent({
     pendingYouTubeUrlRef.current = null
   }
 
-  function clearLocalSource() {
-    setLocalFiles([])
-    setDragActive(false)
-    setSourceError(null)
-    if (fileInputRef.current) fileInputRef.current.value = ''
-  }
-
   async function resolveYouTubeSource(url: string) {
     const trimmed = url.trim()
     if (!trimmed) return
@@ -344,13 +337,16 @@ function ImportPanelContent({
     await resolveYouTubeSource(trimmed)
   }
 
-  async function stageFiles() {
-    if (!localFiles.length) return
+  async function resolveLocalFiles(files: File[]) {
+    if (!files.length) return
+    setLocalFiles(files)
     setSourceError(null)
     try {
-      await onResolveLocalImport(localFiles)
+      await onResolveLocalImport(files)
       resetSourceInputs()
     } catch (raw) {
+      setLocalFiles([])
+      if (fileInputRef.current) fileInputRef.current.value = ''
       setSourceError(raw instanceof Error ? raw.message : 'Could not stage those files.')
     }
   }
@@ -365,7 +361,7 @@ function ImportPanelContent({
       return
     }
     setSourceError(null)
-    setLocalFiles(accepted)
+    discardRejection(() => resolveLocalFiles(accepted))
   }
 
   const sourceBusy = resolvingYoutubeImport || resolvingLocalImport
@@ -385,7 +381,9 @@ function ImportPanelContent({
   const createNew = countAction(drafts, 'create-new')
   const reuse = countAction(drafts, 'reuse-existing')
   const skip = countAction(drafts, 'skip')
+  const importableCount = createNew + reuse
   const canConfirm = drafts.length > 0 && unresolved === 0 && !confirming && !hasPendingDraftActions
+  const selectedStemLabel = stemSelectionLabel(selection.stems, stemOptions)
 
   const ordered = [...drafts].sort((a, b) => {
     const aNeeds = needsDuplicateDecision(a) ? 1 : 0
@@ -439,6 +437,118 @@ function ImportPanelContent({
 
   // ---- Render ---------------------------------------------------------------
 
+  const sourceControls = (
+    <>
+      <div className="import-panel-url-row">
+        <div className="import-panel-url-wrap">
+          <input
+            ref={urlInputRef}
+            type="url"
+            className="import-panel-url-input"
+            placeholder="Paste YouTube URL or playlist"
+            value={youtubeUrl}
+            onChange={(event) => {
+              setYoutubeUrl(event.target.value)
+              if (sourceError) setSourceError(null)
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter' || !youtubeUrl.trim() || sourceBusy) return
+              event.preventDefault()
+              discardRejection(stageYouTube)
+            }}
+            disabled={sourceBusy}
+            aria-label="YouTube URL"
+          />
+          {youtubeUrl && !sourceBusy ? (
+            <button
+              type="button"
+              className="import-panel-url-clear"
+              onClick={clearYouTubeSource}
+              aria-label="Clear URL"
+            >
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden>
+                <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
+            </button>
+          ) : null}
+        </div>
+        <button
+          type="button"
+          className="button-primary"
+          disabled={!youtubeUrl.trim() || sourceBusy}
+          onClick={() => discardRejection(stageYouTube)}
+        >
+          {resolvingYoutubeImport ? <><Spinner /> Resolving…</> : 'Add'}
+        </button>
+      </div>
+
+      {playlistHint ? (
+        <p className="import-panel-hint">{playlistHint}</p>
+      ) : !youtubeUrl && !drafts.length ? (
+        <p className="import-panel-hint">Paste a URL here or drop audio and video files below.</p>
+      ) : null}
+
+      <div className="import-panel-or" aria-hidden>or</div>
+
+      <div
+        className={`import-panel-drop ${dragActive ? 'is-active' : ''} ${localFiles.length > 0 ? 'is-loaded' : ''}`}
+        onDrop={handleDrop}
+        onDragOver={(event) => { event.preventDefault(); event.stopPropagation(); setDragActive(true) }}
+        onDragLeave={(event) => { event.preventDefault(); event.stopPropagation(); setDragActive(false) }}
+        onDragEnter={(event) => { event.preventDefault(); event.stopPropagation(); setDragActive(true) }}
+        onClick={() => fileInputRef.current?.click()}
+        role="button"
+        tabIndex={0}
+        aria-label="Drop audio or video files, or press Enter to browse"
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            fileInputRef.current?.click()
+          }
+        }}
+      >
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="audio/*,video/*"
+          multiple
+          disabled={sourceBusy}
+          onChange={(event) => {
+            const accepted = filterImportableMediaFiles(event.target.files ?? [])
+            if (accepted.length > 0) {
+              discardRejection(() => resolveLocalFiles(accepted))
+              return
+            }
+            setLocalFiles([])
+            setSourceError('Choose audio or video files.')
+          }}
+          hidden
+        />
+        {localFiles.length > 0 ? (
+          <span className="import-panel-drop-label">
+            {resolvingLocalImport ? <Spinner /> : <CheckIcon />}
+            <strong>
+              {resolvingLocalImport
+                ? `Adding ${localFiles.length} file${localFiles.length === 1 ? '' : 's'}`
+                : `${localFiles.length} file${localFiles.length === 1 ? '' : 's'} added`}
+            </strong>
+            <span>{resolvingLocalImport ? localFiles.map((f) => f.name).join(', ') : 'Review the staged songs below.'}</span>
+          </span>
+        ) : (
+          <span className="import-panel-drop-label">
+            <UploadIcon />
+            <strong>Drop audio or video files</strong>
+            <span>Click to browse instead</span>
+          </span>
+        )}
+      </div>
+
+      {sourceError ? (
+        <p className="import-panel-error" role="alert">{sourceError}</p>
+      ) : null}
+    </>
+  )
+
   return (
     <div
       className="overlay"
@@ -453,7 +563,7 @@ function ImportPanelContent({
         <header className="overlay-head">
           <div className="overlay-head-copy">
             <h2>Add songs</h2>
-            <p>Stage files or YouTube links, resolve matches, then choose whether to create stems now.</p>
+            <p>Add files or YouTube links, review matches, then choose what happens next.</p>
           </div>
           <button ref={closeButtonRef} type="button" className="button-secondary" onClick={onClose}>
             Close
@@ -462,128 +572,19 @@ function ImportPanelContent({
 
         <div className="overlay-body">
           {/* ---- Source input ------------------------------------------- */}
-          <div className={`import-panel-source ${drafts.length > 0 ? 'is-compact' : ''}`}>
-            <div className="import-panel-url-row">
-              <div className="import-panel-url-wrap">
-                <input
-                  ref={urlInputRef}
-                  type="url"
-                  className="import-panel-url-input"
-                  placeholder="Paste YouTube URL or playlist"
-                  value={youtubeUrl}
-                  onChange={(event) => {
-                    setYoutubeUrl(event.target.value)
-                    if (sourceError) setSourceError(null)
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key !== 'Enter' || !youtubeUrl.trim() || sourceBusy) return
-                    event.preventDefault()
-                    discardRejection(stageYouTube)
-                  }}
-                  disabled={sourceBusy}
-                  aria-label="YouTube URL"
-                />
-                {youtubeUrl && !sourceBusy ? (
-                  <button
-                    type="button"
-                    className="import-panel-url-clear"
-                    onClick={clearYouTubeSource}
-                    aria-label="Clear URL"
-                  >
-                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden>
-                      <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                    </svg>
-                  </button>
-                ) : null}
-              </div>
-              <button
-                type="button"
-                className="button-primary"
-                disabled={!youtubeUrl.trim() || sourceBusy}
-                onClick={() => discardRejection(stageYouTube)}
-              >
-                {resolvingYoutubeImport ? <><Spinner /> Resolving…</> : 'Add'}
-              </button>
+          {drafts.length > 0 ? (
+            <details className="import-panel-source import-panel-source-collapsed">
+              <summary>
+                <strong>Add more songs</strong>
+                <span>Keep the current review in place.</span>
+              </summary>
+              {sourceControls}
+            </details>
+          ) : (
+            <div className="import-panel-source">
+              {sourceControls}
             </div>
-
-            {playlistHint ? (
-              <p className="import-panel-hint">{playlistHint}</p>
-            ) : !youtubeUrl && !drafts.length ? (
-              <p className="import-panel-hint">Paste a URL here or drop audio and video files below.</p>
-            ) : null}
-
-            <div className="import-panel-or" aria-hidden>or</div>
-
-            <div
-              className={`import-panel-drop ${dragActive ? 'is-active' : ''} ${localFiles.length > 0 ? 'is-loaded' : ''}`}
-              onDrop={handleDrop}
-              onDragOver={(event) => { event.preventDefault(); event.stopPropagation(); setDragActive(true) }}
-              onDragLeave={(event) => { event.preventDefault(); event.stopPropagation(); setDragActive(false) }}
-              onDragEnter={(event) => { event.preventDefault(); event.stopPropagation(); setDragActive(true) }}
-              onClick={() => fileInputRef.current?.click()}
-              role="button"
-              tabIndex={0}
-              aria-label="Drop audio or video files, or press Enter to browse"
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault()
-                  fileInputRef.current?.click()
-                }
-              }}
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="audio/*,video/*"
-                multiple
-                disabled={sourceBusy}
-                onChange={(event) => {
-                  const accepted = filterImportableMediaFiles(event.target.files ?? [])
-                  setLocalFiles(accepted)
-                  setSourceError(accepted.length > 0 ? null : 'Choose audio or video files.')
-                }}
-                hidden
-              />
-              {localFiles.length > 0 ? (
-                <span className="import-panel-drop-label">
-                  <CheckIcon />
-                  <strong>{localFiles.length} file{localFiles.length === 1 ? '' : 's'} ready</strong>
-                  <span>{localFiles.map((f) => f.name).join(', ')}</span>
-                </span>
-              ) : (
-                <span className="import-panel-drop-label">
-                  <UploadIcon />
-                  <strong>Drop audio or video files</strong>
-                  <span>Click to browse instead</span>
-                </span>
-              )}
-            </div>
-
-            {localFiles.length > 0 ? (
-              <div className="import-panel-file-actions">
-                <button
-                  type="button"
-                  className="button-primary"
-                  disabled={sourceBusy}
-                  onClick={() => discardRejection(stageFiles)}
-                >
-                  {resolvingLocalImport ? <><Spinner /> Adding…</> : `Add ${localFiles.length} file${localFiles.length === 1 ? '' : 's'}`}
-                </button>
-                <button
-                  type="button"
-                  className="button-link"
-                  disabled={sourceBusy}
-                  onClick={clearLocalSource}
-                >
-                  Clear
-                </button>
-              </div>
-            ) : null}
-
-            {sourceError ? (
-              <p className="import-panel-error" role="alert">{sourceError}</p>
-            ) : null}
-          </div>
+          )}
 
           {/* ---- Staged review ------------------------------------------ */}
           {drafts.length > 0 ? (
@@ -623,6 +624,7 @@ function ImportPanelContent({
               stemOptions={stemOptions}
               qualityOptions={qualityOptions}
               disabled={confirming}
+              compact
               onChange={setSelection}
             />
             <div className="overlay-foot-bottom">
@@ -631,27 +633,29 @@ function ImportPanelContent({
                   ? 'Saving…'
                   : unresolved > 0
                     ? `${unresolved} duplicate${unresolved === 1 ? '' : 's'} to resolve`
+                    : importableCount === 0
+                      ? 'No songs will be imported.'
                     : selection.stems.length
-                      ? `Import these songs, then queue ${stemSelectionLabel(selection.stems, stemOptions)}.`
-                      : 'Import these songs without starting stem creation.'}
+                      ? `Import ${importableCount} song${importableCount === 1 ? '' : 's'} and queue ${selectedStemLabel}.`
+                      : 'Choose stems to process now, or import only.'}
               </div>
               <div className="overlay-foot-actions">
-                <button
-                  type="button"
-                  className="button-secondary"
-                  disabled={!canConfirm}
-                  onClick={() => discardRejection(() => confirm(false))}
-                  title="Add to the library without processing yet. You can create stems from the song list."
-                >
-                  Import only
-                </button>
                 <button
                   type="button"
                   className="button-primary"
                   disabled={!canConfirm || selection.stems.length === 0}
                   onClick={() => discardRejection(() => confirm(true))}
                 >
-                  {confirming ? <><Spinner /> Importing…</> : 'Import and create stems'}
+                  {confirming ? <><Spinner /> Importing…</> : 'Import and queue stem sets'}
+                </button>
+                <button
+                  type="button"
+                  className="button-link import-only-action"
+                  disabled={!canConfirm}
+                  onClick={() => discardRejection(() => confirm(false))}
+                  title="Add to the library without processing yet. You can create a stem set from the song list."
+                >
+                  Import only
                 </button>
               </div>
             </div>

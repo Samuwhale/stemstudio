@@ -3,7 +3,6 @@ import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { discardRejection } from '../../async'
 import { useProcessingSelection } from '../../hooks/useProcessingSelection'
 import { ConfirmInline } from '../feedback/ConfirmInline'
-import { RunStepper } from '../feedback/RunStepper'
 import { MixExportPopover } from './MixExportPopover'
 import { MixPanel, type MixSaveStatus } from './MixPanel'
 import { StemSelectionPicker } from '../StemSelectionPicker'
@@ -65,6 +64,7 @@ type StemCreateControlProps = {
   qualityOptions: QualityOption[]
   defaultSelection: RunProcessingConfigInput
   creatingRun: boolean
+  buttonLabel?: string
   onCreateRun: (processing: RunProcessingConfigInput) => void
 }
 
@@ -73,6 +73,7 @@ function StemCreateControl({
   qualityOptions,
   defaultSelection,
   creatingRun,
+  buttonLabel = 'Create first stem set',
   onCreateRun,
 }: StemCreateControlProps) {
   const [selection, setSelection] = useProcessingSelection(defaultSelection)
@@ -84,6 +85,7 @@ function StemCreateControl({
         stemOptions={stemOptions}
         qualityOptions={qualityOptions}
         disabled={creatingRun}
+        compact
         onChange={setSelection}
       />
       <button
@@ -92,7 +94,7 @@ function StemCreateControl({
         disabled={creatingRun || selection.stems.length === 0}
         onClick={() => onCreateRun(selection)}
       >
-        {creatingRun ? 'Queueing…' : 'Create stems'}
+        {creatingRun ? 'Queueing…' : buttonLabel}
       </button>
     </div>
   )
@@ -328,6 +330,7 @@ function StemSetsPopover({
             stemOptions={stemOptions}
             qualityOptions={qualityOptions}
             disabled={creatingRun}
+            compact
             onChange={setSelection}
           />
           <button
@@ -336,7 +339,7 @@ function StemSetsPopover({
             disabled={creatingRun || selection.stems.length === 0}
             onClick={() => discardRejection(generate)}
           >
-            {creatingRun ? 'Queueing…' : 'Create stem set'}
+            {creatingRun ? 'Queueing…' : 'Create another stem set'}
           </button>
         </div>
         {runs.length > 0 ? (
@@ -452,7 +455,7 @@ function OverflowMenu({ track, onClose, onReveal, onDeleteTrack, onOpenShortcuts
           </button>
           <div className="menu-sep" aria-hidden />
           <ConfirmInline
-            label={hasActiveRun ? 'Finish active stem job first' : 'Delete song…'}
+            label={hasActiveRun ? 'Finish active stem set first' : 'Delete song…'}
             pendingLabel="Deleting…"
             confirmLabel={`Delete "${track.title}"`}
             cancelLabel="Keep"
@@ -553,14 +556,14 @@ function MixWorkspaceContent({
     ? 'Saving mix changes'
     : mixSaveFailed
       ? 'Mix save failed'
-      : taskStatus?.label ?? 'Create stems for this song'
+      : taskStatus?.label ?? 'Create first stem set'
   const taskbarDetail = mixSavePending
     ? 'Export will be available after the latest levels and mutes are saved.'
     : mixSaveFailed
       ? mixSaveStatus.error ?? 'Retry the save from the mixer before exporting.'
       : mixable
-        ? 'Export uses saved mutes and levels. Solo stays preview-only.'
-        : taskStatus?.detail ?? 'Choose a stem set, then adjust the separated tracks here.'
+        ? 'Export starts with the current mix. Add separated stem files only when needed.'
+        : taskStatus?.detail ?? 'Choose which stems to create, then adjust the separated tracks here.'
 
   function handleMixSaveStatusChange(status: MixSaveStatus) {
     setMixSaveState({ runId: selectedRunStateId, status })
@@ -679,105 +682,100 @@ function MixWorkspaceContent({
               ? <img src={track.thumbnail_url} alt="" loading="lazy" />
               : track.title.trim().slice(0, 1).toUpperCase() || 'S'}
           </span>
-          {editingTitle ? (
-            <div
-              className="mix-top-rename"
-              onBlur={(e) => {
-                if (e.relatedTarget instanceof HTMLElement && e.currentTarget.contains(e.relatedTarget)) return
-                commitTitleEdit()
-              }}
-            >
-              <input
-                ref={editTitleRef}
-                type="text"
-                className="mix-top-rename-title"
-                value={editTitle}
-                disabled={updatingTrack}
-                onChange={(e) => setEditTitle(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') { e.preventDefault(); editArtistRef.current?.focus() }
-                  if (e.key === 'Escape') { e.preventDefault(); cancelTitleEdit() }
+          <div className="mix-top-title-stack">
+            {editingTitle ? (
+              <div
+                className="mix-top-rename"
+                onBlur={(e) => {
+                  if (e.relatedTarget instanceof HTMLElement && e.currentTarget.contains(e.relatedTarget)) return
+                  commitTitleEdit()
                 }}
-                aria-label="Song title"
-              />
-              <input
-                ref={editArtistRef}
-                type="text"
-                className="mix-top-rename-artist"
-                value={editArtist}
-                placeholder="Artist (optional)"
+              >
+                <input
+                  ref={editTitleRef}
+                  type="text"
+                  className="mix-top-rename-title"
+                  value={editTitle}
+                  disabled={updatingTrack}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); editArtistRef.current?.focus() }
+                    if (e.key === 'Escape') { e.preventDefault(); cancelTitleEdit() }
+                  }}
+                  aria-label="Song title"
+                />
+                <input
+                  ref={editArtistRef}
+                  type="text"
+                  className="mix-top-rename-artist"
+                  value={editArtist}
+                  placeholder="Artist (optional)"
+                  disabled={updatingTrack}
+                  onChange={(e) => setEditArtist(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); commitTitleEdit() }
+                    if (e.key === 'Escape') { e.preventDefault(); cancelTitleEdit() }
+                  }}
+                  aria-label="Song artist"
+                />
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="mix-top-title-copy"
                 disabled={updatingTrack}
-                onChange={(e) => setEditArtist(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') { e.preventDefault(); commitTitleEdit() }
-                  if (e.key === 'Escape') { e.preventDefault(); cancelTitleEdit() }
-                }}
-                aria-label="Song artist"
-              />
-            </div>
-          ) : (
-            <button
-              type="button"
-              className="mix-top-title-copy"
-              disabled={updatingTrack}
-              onClick={startEditTitle}
-              title="Click to rename"
-              aria-label={`Rename — ${track.title}`}
-            >
-              <strong>{track.title}</strong>
-              <span className="mix-top-title-sub">
-                {(track.artist || track.duration_seconds) ? (
-                  <span className="mix-top-artist">
-                    {[track.artist, formatDuration(track.duration_seconds)].filter(Boolean).join(' · ')}
-                  </span>
-                ) : null}
-                <span className="mix-top-edit-icon" aria-hidden><PencilIcon /></span>
-              </span>
-            </button>
-          )}
+                onClick={startEditTitle}
+                title="Click to rename"
+                aria-label={`Rename — ${track.title}`}
+              >
+                <strong>{track.title}</strong>
+                <span className="mix-top-title-sub">
+                  {(track.artist || track.duration_seconds) ? (
+                    <span className="mix-top-artist">
+                      {[track.artist, formatDuration(track.duration_seconds)].filter(Boolean).join(' · ')}
+                    </span>
+                  ) : null}
+                  <span className="mix-top-edit-icon" aria-hidden><PencilIcon /></span>
+                </span>
+              </button>
+            )}
+          </div>
         </div>
         <div className="mix-top-actions">
           <span className="popover-anchor">
             <button
               type="button"
-              className="icon-button"
-              onClick={() => setPopover(popover === 'menu' ? null : 'menu')}
-              aria-haspopup="menu"
-              aria-expanded={popover === 'menu'}
-              aria-label="Song options"
+              className="button-primary"
+              onClick={() => {
+                if (!canExport) return
+                setPopover(popover === 'export' ? null : 'export')
+              }}
+              disabled={!canExport}
+              aria-haspopup="dialog"
+              aria-expanded={popover === 'export'}
+              title={
+                mixSavePending
+                  ? 'Waiting for the latest mix changes to save.'
+                  : mixSaveFailed
+                    ? 'Fix the mix save error before exporting.'
+                    : canExport
+                      ? 'Export the current mix or separated stems (e)'
+                      : 'Export unlocks after the selected stem set is ready.'
+              }
             >
-              <Ellipsis />
+              {mixSavePending ? 'Saving mix…' : 'Export current mix'}
             </button>
-            {popover === 'menu' ? (
-              <OverflowMenu
-                key={track.id}
+            {popover === 'export' && selectedRun && canExport ? (
+              <MixExportPopover
                 track={track}
+                run={selectedRun}
+                defaultBitrate={defaultBitrate}
                 onClose={() => setPopover(null)}
-                onReveal={() => onReveal({ kind: 'track-outputs', track_id: track.id })}
-                onDeleteTrack={() => onDeleteTrack(track.id)}
-                onOpenShortcuts={onOpenShortcuts}
+                onReveal={onReveal}
+                onError={onError}
               />
             ) : null}
           </span>
-        </div>
-      </header>
-
-      <div className="mix-taskbar">
-        <div className="mix-taskbar-copy">
-          <strong>{taskbarLabel}</strong>
-          <span>{taskbarDetail}</span>
-        </div>
-        <div className="mix-taskbar-actions">
-          {showStemSetControl && selectedRun && !activeStemSet ? (
-            <button
-              type="button"
-              className="button-secondary mix-taskbar-secondary"
-              disabled={creatingRun}
-              onClick={() => setPopover('stemSets')}
-            >
-              Create another
-            </button>
-          ) : null}
           {showStemSetControl ? (
             <span className="popover-anchor">
               <button
@@ -830,38 +828,30 @@ function MixWorkspaceContent({
           <span className="popover-anchor">
             <button
               type="button"
-              className="button-primary"
-              onClick={() => {
-                if (!canExport) return
-                setPopover(popover === 'export' ? null : 'export')
-              }}
-              disabled={!canExport}
-              aria-haspopup="dialog"
-              aria-expanded={popover === 'export'}
-              title={
-                mixSavePending
-                  ? 'Waiting for the latest mix changes to save.'
-                  : mixSaveFailed
-                    ? 'Fix the mix save error before exporting.'
-                    : canExport
-                      ? 'Export the audio mix or separated stems (e)'
-                      : 'Export unlocks after the selected stem set is ready.'
-              }
+              className="icon-button"
+              onClick={() => setPopover(popover === 'menu' ? null : 'menu')}
+              aria-haspopup="menu"
+              aria-expanded={popover === 'menu'}
+              aria-label="Song options"
             >
-              {mixSavePending ? 'Saving mix…' : 'Export audio'}
+              <Ellipsis />
             </button>
-            {popover === 'export' && selectedRun && canExport ? (
-              <MixExportPopover
+            {popover === 'menu' ? (
+              <OverflowMenu
+                key={track.id}
                 track={track}
-                run={selectedRun}
-                defaultBitrate={defaultBitrate}
                 onClose={() => setPopover(null)}
-                onReveal={onReveal}
-                onError={onError}
+                onReveal={() => onReveal({ kind: 'track-outputs', track_id: track.id })}
+                onDeleteTrack={() => onDeleteTrack(track.id)}
+                onOpenShortcuts={onOpenShortcuts}
               />
             ) : null}
           </span>
         </div>
+      </header>
+      <div className={`mix-status-row ${mixSaveFailed ? 'is-error' : activeStemSet ? 'is-active' : ''}`}>
+        <strong>{taskbarLabel}</strong>
+        <span>{taskbarDetail}</span>
       </div>
 
       {selectedRun && mixable ? (
@@ -909,7 +899,6 @@ function MixWorkspaceContent({
                 {selectedRun.status_message && selectedRun.status !== 'queued' ? (
                   <p className="mix-progress-hint" aria-live="polite">{selectedRun.status_message}</p>
                 ) : null}
-                <RunStepper status={selectedRun.status} lastActiveStatus={selectedRun.last_active_status} />
                 <ConfirmInline
                   label="Cancel"
                   pendingLabel="Cancelling…"
@@ -944,6 +933,7 @@ function MixWorkspaceContent({
                   qualityOptions={qualityOptions}
                   defaultSelection={defaultSelection}
                   creatingRun={creatingRun}
+                  buttonLabel="Create another stem set"
                   onCreateRun={createRunAndSelect}
                 />
               </>
@@ -956,6 +946,7 @@ function MixWorkspaceContent({
                   qualityOptions={qualityOptions}
                   defaultSelection={defaultSelection}
                   creatingRun={creatingRun}
+                  buttonLabel="Create another stem set"
                   onCreateRun={createRunAndSelect}
                 />
               </>
@@ -963,7 +954,7 @@ function MixWorkspaceContent({
           ) : (
             <>
               <StemCreateIcon />
-              <strong>Create stems for this song</strong>
+              <strong>Create first stem set</strong>
               <StemCreateControl
                 stemOptions={stemOptions}
                 qualityOptions={qualityOptions}

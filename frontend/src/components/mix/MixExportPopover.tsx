@@ -21,8 +21,8 @@ export function MixExportPopover({
   return (
     <>
       <div className="popover-backdrop" onClick={onClose} aria-hidden />
-      <div className="popover popover-right popover-wide" role="dialog" aria-label="Export audio">
-        <div className="popover-title">Export audio</div>
+      <div className="popover popover-right popover-wide" role="dialog" aria-label="Export current mix">
+        <div className="popover-title">Export current mix</div>
         <ExportBuilder
           selectedTrackIds={[track.id]}
           runIds={{ [track.id]: run.id }}

@@ -5,12 +5,7 @@ import { useLibraryQuery } from '../../hooks/useLibraryQuery'
 import { trackArtHue } from '../../trackArt'
 import { formatDuration } from '../metrics'
 import { describeRun, isActiveRunStatus, RUN_STATUS_LABELS, summarizeRunJourney } from '../runStatus'
-import {
-  isTrackExportable,
-  isTrackStemmable,
-  SONG_BROWSE_SORT_OPTIONS,
-  trackStageSummary,
-} from '../trackListView'
+import { SONG_BROWSE_SORT_OPTIONS, trackStageSummary } from '../trackListView'
 import type { TrackStageSummary } from '../trackListView'
 import type { SongsView } from '../../routes'
 import type { QueueRunEntry, RunMutationResponse, RunSummary, TrackSummary } from '../../types'
@@ -39,13 +34,6 @@ type SongsPageProps = {
 type RowStatus = {
   text: string | null
   tone: 'processing' | 'attn' | 'ready' | null
-  count: number | null
-  preferred: boolean
-}
-
-type InspectorSelection = {
-  manualTrackId: string | null
-  currentTrackIdAtSelection: string | null
 }
 
 function rowStatusFromStage(stage: TrackStageSummary, track: TrackSummary): RowStatus {
@@ -56,50 +44,26 @@ function rowStatusFromStage(stage: TrackStageSummary, track: TrackSummary): RowS
       return {
         text: status.progressLabel ?? status.label,
         tone: 'processing',
-        count: null,
-        preferred: false,
       }
     }
-    return { text: RUN_STATUS_LABELS.queued, tone: 'processing', count: null, preferred: false }
+    return { text: RUN_STATUS_LABELS.queued, tone: 'processing' }
   }
   if (stage.key === 'needs-attention') {
     const run = track.latest_run
     const status = run ? summarizeRunJourney(run) : null
     return {
-      text: status?.label ?? 'Stem job failed',
+      text: status?.label ?? 'Stem set failed',
       tone: 'attn',
-      count: null,
-      preferred: false,
     }
   }
-  if (stage.key === 'needs-stems') return { text: null, tone: null, count: null, preferred: false }
+  if (stage.key === 'needs-stems') return { text: null, tone: null }
   if (stage.key === 'final' || stage.key === 'ready') {
     return {
-      text: track.has_custom_mix ? 'Mix saved' : 'Ready to export',
+      text: track.has_custom_mix ? 'Mix adjusted' : 'Ready to mix',
       tone: 'ready',
-      count: track.run_count > 1 ? track.run_count : null,
-      preferred: stage.key === 'final',
     }
   }
-  return { text: null, tone: null, count: null, preferred: false }
-}
-
-function resolveInspectedTrackId(
-  selection: InspectorSelection,
-  currentTrackId: string | null,
-  browseTrackIds: Set<string>,
-  firstBrowseTrackId: string | null,
-) {
-  const requestedTrackId =
-    currentTrackId !== selection.currentTrackIdAtSelection
-      ? currentTrackId
-      : selection.manualTrackId ?? currentTrackId
-
-  if (requestedTrackId && browseTrackIds.has(requestedTrackId)) {
-    return requestedTrackId
-  }
-
-  return firstBrowseTrackId
+  return { text: null, tone: null }
 }
 
 function WaveformIcon() {
@@ -187,7 +151,7 @@ function QueueStrip({
   const showHead = draftsCount > 0 || failedCount > 0 || activeCount > 1
   const summary: string[] = []
   if (draftsCount > 0) summary.push(`${draftsCount} import${draftsCount === 1 ? '' : 's'} to review`)
-  if (showHead && activeCount > 0) summary.push(`${activeCount} stem job${activeCount === 1 ? '' : 's'} running`)
+  if (showHead && activeCount > 0) summary.push(`${activeCount} stem set${activeCount === 1 ? '' : 's'} running`)
   if (failedCount > 0) summary.push(`${failedCount} need${failedCount === 1 ? 's' : ''} attention`)
 
   const compact = !showHead && activeCount === 1 && failedCount === 0
@@ -371,10 +335,6 @@ export function SongsPage({
 }: SongsPageProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [selectionMode, setSelectionMode] = useState(false)
-  const [inspectorSelection, setInspectorSelection] = useState<InspectorSelection>(() => ({
-    manualTrackId: null,
-    currentTrackIdAtSelection: currentTrackId,
-  }))
   const [deleteArmedSelectionKey, setDeleteArmedSelectionKey] = useState<string | null>(null)
 
   const handleEscapeSelection = useEffectEvent((event: KeyboardEvent) => {
@@ -401,21 +361,6 @@ export function SongsPage({
   } = useLibraryQuery(tracks, view, queueRuns)
   const showQueue = stagedImportsCount > 0 || activeRuns.length > 0 || failedRuns.length > 0
   const showFilterTabs = filterTabs.length > 2 // only show when at least 2 distinct stages are present
-  const firstBrowseTrackId = browseTracks[0]?.id ?? null
-  const inspectedTrackId = useMemo(
-    () =>
-      resolveInspectedTrackId(
-        inspectorSelection,
-        currentTrackId,
-        browseTrackIds,
-        firstBrowseTrackId,
-      ),
-    [browseTrackIds, currentTrackId, firstBrowseTrackId, inspectorSelection],
-  )
-  const inspectedTrack = useMemo(
-    () => browseTracks.find((track) => track.id === inspectedTrackId) ?? null,
-    [browseTracks, inspectedTrackId],
-  )
 
   const { selectedIds, stemEligible, exportEligible } = useMemo(() => {
     const ids = Array.from(selected).filter((id) => browseTrackIds.has(id))
@@ -431,8 +376,8 @@ export function SongsPage({
   const stemSkippedCount = selectedCount - stemEligible.length
   const exportSkippedCount = selectedCount - exportEligible.length
   const batchReadiness = [
-    stemEligible.length > 0 ? `${stemEligible.length} can create stems` : null,
-    exportEligible.length > 0 ? `${exportEligible.length} can export` : null,
+    stemEligible.length > 0 ? `${stemEligible.length} ready for stem sets` : null,
+    exportEligible.length > 0 ? `${exportEligible.length} ready to export a current mix` : null,
     stemEligible.length === 0 && exportEligible.length === 0 ? 'No selected songs are ready for batch actions' : null,
   ].filter(Boolean).join(' · ')
   const selectedVisibleIdSet = useMemo(() => new Set(selectedIds), [selectedIds])
@@ -498,13 +443,6 @@ export function SongsPage({
     onBatchExport(selectedIds)
     setSelected(new Set())
     setSelectionMode(false)
-  }
-
-  function selectTrack(track: TrackSummary) {
-    setInspectorSelection({
-      manualTrackId: track.id,
-      currentTrackIdAtSelection: currentTrackId,
-    })
   }
 
   function handleDelete() {
@@ -637,8 +575,8 @@ export function SongsPage({
           {browseTracks.map((track) => {
             const stage = trackStageSummary(track)
             const status = rowStatusFromStage(stage, track)
-            const isActive = inspectedTrack?.id === track.id
             const isSelected = selected.has(track.id)
+            const isCurrent = currentTrackId === track.id
             const initials = track.title.trim().slice(0, 1).toUpperCase() || 'S'
             const meta = [track.artist, formatDuration(track.duration_seconds)]
               .filter(Boolean)
@@ -647,13 +585,15 @@ export function SongsPage({
             const activeRun =
               track.latest_run && isActiveRunStatus(track.latest_run.status) ? track.latest_run : null
             const latestRun = track.latest_run
-            // Only show the progress bar once work has actually started (not while queued)
-            const showProgressBar = !!activeRun && activeRun.status !== 'queued' && activeRun.progress > 0
+            const opensWorkspace = stage.key !== 'needs-stems'
+            const readyActionLabel = 'Open mixer'
+            const createActionLabel = 'Create first stem set'
+            const showProgressBar = !!activeRun
             return (
               <div
                 key={track.id}
                 role="listitem"
-                className={`song-row ${isActive ? 'is-active' : ''} ${isSelected ? 'is-selected' : ''}`}
+                className={`song-row ${isSelected ? 'is-selected' : ''} ${isCurrent ? 'is-current' : ''}`}
               >
                 <label
                   className="song-row-check"
@@ -669,14 +609,20 @@ export function SongsPage({
                 <button
                   type="button"
                   className="song-row-open"
-                  title={`Show details for ${track.title}`}
-                  aria-label={`Show details for ${track.title}`}
+                  title={opensWorkspace ? `Open ${track.title}` : `${createActionLabel} for ${track.title}`}
+                  aria-label={opensWorkspace ? `Open ${track.title}` : `${createActionLabel} for ${track.title}`}
                   onClick={() => {
                     if (selectionMode) {
                       toggleSelect(track.id)
                       return
                     }
-                    selectTrack(track)
+                    if (opensWorkspace) {
+                      onOpenTrack(track)
+                      return
+                    }
+                    if (stage.key === 'needs-stems') {
+                      onBatchCreateStems([track.id])
+                    }
                   }}
                 >
                   <span
@@ -700,14 +646,16 @@ export function SongsPage({
                 </button>
                 <div className="song-row-meta">
                   {stage.key === 'needs-stems' ? (
-                    <button
-                      type="button"
-                      className="song-row-stem-action"
-                      onClick={() => onBatchCreateStems([track.id])}
-                      aria-label={`Create stems for ${track.title}`}
-                    >
-                      Create stems
-                    </button>
+                    <div className="song-row-actions">
+                      <button
+                        type="button"
+                        className="song-row-stem-action"
+                        onClick={() => onBatchCreateStems([track.id])}
+                        aria-label={`${createActionLabel} for ${track.title}`}
+                      >
+                        {createActionLabel}
+                      </button>
+                    </div>
                   ) : stage.key === 'needs-attention' && latestRun ? (
                     <button
                       type="button"
@@ -719,33 +667,33 @@ export function SongsPage({
                       {retryingRunId === latestRun.id ? 'Retrying…' : 'Retry'}
                     </button>
                   ) : stage.key === 'processing' ? (
-                    <button
-                      type="button"
-                      className="song-row-status song-row-open-action is-processing"
-                      onClick={() => onOpenTrack(track)}
-                      aria-label={`View stem progress for ${track.title}`}
-                      title={status.text ?? 'Creating stems'}
-                    >
-                      View progress
-                    </button>
-                  ) : status.text && (stage.key === 'ready' || stage.key === 'final') ? (
-                    <button
-                      type="button"
-                      className={`song-row-status song-row-open-action ${status.tone ? `is-${status.tone}` : ''} ${status.preferred ? 'is-preferred' : ''}`}
-                      onClick={() => onOpenTrack(track)}
-                      aria-label={`Open ${track.title} in mix`}
-                      title={status.text}
-                    >
-                      {status.preferred ? (
-                        <span className="song-row-status-star" aria-label="Preferred stem set" title="Preferred stem set">★</span>
-                      ) : null}
-                      Open mix
-                      {status.count ? (
-                        <span className="song-row-status-count" aria-label={`${status.count} stem sets`}>
-                          {status.count}
+                    <span className="song-row-status is-processing">
+                      {status.text ?? 'Creating stems'}
+                    </span>
+                  ) : stage.key === 'ready' || stage.key === 'final' ? (
+                    <div className="song-row-actions">
+                      {status.text ? (
+                        <span className={`song-row-status ${status.tone ? `is-${status.tone}` : ''}`}>
+                          {status.text}
                         </span>
                       ) : null}
-                    </button>
+                      <button
+                        type="button"
+                        className="song-row-ready-action"
+                        onClick={() => onOpenTrack(track)}
+                        aria-label={`${readyActionLabel} for ${track.title}`}
+                      >
+                        {readyActionLabel}
+                      </button>
+                      <button
+                        type="button"
+                        className="song-row-secondary-action"
+                        onClick={() => onBatchExport([track.id])}
+                        aria-label={`Export current mix for ${track.title}`}
+                      >
+                        Export mix
+                      </button>
+                    </div>
                   ) : status.text ? (
                     <span className={`song-row-status ${status.tone ? `is-${status.tone}` : ''}`}>
                       {status.text}
@@ -758,51 +706,44 @@ export function SongsPage({
         </div>
       ) : null}
 
-      {inspectedTrack ? (
-        <LibraryInspector
-          track={inspectedTrack}
-          retryingRunId={retryingRunId}
-          onOpenTrack={onOpenTrack}
-          onRetryRun={onRetryRun}
-          onCreateStems={() => onBatchCreateStems([inspectedTrack.id])}
-          onExport={() => onBatchExport([inspectedTrack.id])}
-        />
-      ) : tracks.length > 0 ? (
-        <div className="library-empty">
-          {view.filter !== 'all' ? (
-            <>
-              <strong>Nothing in this filter</strong>
-              <button
-                type="button"
-                className="button-secondary"
-                onClick={() => changeBrowseView({ ...view, filter: 'all' })}
-              >
-                Show all songs
-              </button>
-            </>
-          ) : (
-            <>
-              <strong>No results for "{view.search}"</strong>
-              <button
-                type="button"
-                className="button-secondary"
-                onClick={() => changeBrowseView({ ...view, search: '' })}
-              >
-                Clear search
-              </button>
-            </>
-          )}
-        </div>
-      ) : (
-        <div className="library-empty library-empty-onboard">
-          <WaveformIcon />
-          <strong>Add your first song</strong>
-          <p>Drop audio files or paste a YouTube URL to create stems, balance levels, mute parts, and export your mix.</p>
-          <button type="button" className="button-primary" onClick={onAddSongs}>
-            Add songs
-          </button>
-        </div>
-      )}
+      {browseTracks.length === 0 ? (
+        tracks.length > 0 ? (
+          <div className="library-empty">
+            {view.filter !== 'all' ? (
+              <>
+                <strong>Nothing in this filter</strong>
+                <button
+                  type="button"
+                  className="button-secondary"
+                  onClick={() => changeBrowseView({ ...view, filter: 'all' })}
+                >
+                  Show all songs
+                </button>
+              </>
+            ) : (
+              <>
+                <strong>No results for "{view.search}"</strong>
+                <button
+                  type="button"
+                  className="button-secondary"
+                  onClick={() => changeBrowseView({ ...view, search: '' })}
+                >
+                  Clear search
+                </button>
+              </>
+            )}
+          </div>
+        ) : (
+          <div className="library-empty library-empty-onboard">
+            <WaveformIcon />
+            <strong>Add your first song</strong>
+            <p>Drop audio files or paste a YouTube URL, create a stem set, adjust the mix, then export.</p>
+            <button type="button" className="button-primary" onClick={onAddSongs}>
+              Add songs
+            </button>
+          </div>
+        )
+      ) : null}
 
       {selectedCount > 0 ? (
         <div className="batch-bar" role="toolbar" aria-label="Batch actions">
@@ -823,7 +764,7 @@ export function SongsPage({
                   onClick={handleCreateStems}
                   title={stemSkippedCount > 0 ? `${stemSkippedCount} selected song${stemSkippedCount === 1 ? ' is' : 's are'} already creating stems.` : undefined}
                 >
-                  Create stems
+                  Queue stem sets
                 </button>
               ) : null}
               {exportEligible.length > 0 ? (
@@ -831,9 +772,9 @@ export function SongsPage({
                   type="button"
                   className="button-secondary"
                   onClick={handleExport}
-                  title={exportSkippedCount > 0 ? `${exportSkippedCount} selected song${exportSkippedCount === 1 ? ' is' : 's are'} not ready to export yet.` : undefined}
+                  title={exportSkippedCount > 0 ? `${exportSkippedCount} selected song${exportSkippedCount === 1 ? ' is' : 's are'} not ready to export a current mix yet.` : undefined}
                 >
-                  Export audio
+                  Export current mixes
                 </button>
               ) : null}
               <button type="button" className="button-secondary" onClick={handleDelete}>
@@ -855,90 +796,5 @@ export function SongsPage({
       ) : null}
       </div>
     </section>
-  )
-}
-
-function LibraryInspector({
-  track,
-  retryingRunId,
-  onOpenTrack,
-  onRetryRun,
-  onCreateStems,
-  onExport,
-}: {
-  track: TrackSummary
-  retryingRunId: string | null
-  onOpenTrack: (track: TrackSummary, options?: { runId?: string | null }) => void
-  onRetryRun: (runId: string) => Promise<RunMutationResponse>
-  onCreateStems: () => void
-  onExport: () => void
-}) {
-  const stage = trackStageSummary(track)
-  const status = rowStatusFromStage(stage, track)
-  const latestRun = track.latest_run
-  const exportable = isTrackExportable(track)
-  const stemmable = isTrackStemmable(track)
-  const retrying = !!latestRun && retryingRunId === latestRun.id
-  const meta = [track.artist, formatDuration(track.duration_seconds)].filter(Boolean).join(' · ')
-
-  return (
-    <aside className="library-inspector" aria-label="Selected song">
-      <div className="library-inspector-title">
-        <strong>{track.title}</strong>
-        {meta ? <span>{meta}</span> : null}
-      </div>
-
-      <div className="library-inspector-status">
-        <span className={`library-inspector-state is-${stage.key}`}>{stage.label}</span>
-        <p>{status.text ?? stage.description}</p>
-      </div>
-
-      <div className="library-inspector-actions">
-        {stage.key === 'needs-stems' ? (
-          <button type="button" className="button-primary" onClick={onCreateStems}>
-            Create stems
-          </button>
-        ) : stage.key === 'needs-attention' && latestRun ? (
-          <button
-            type="button"
-            className="button-primary"
-            disabled={retrying}
-            onClick={() => discardRejection(() => onRetryRun(latestRun.id))}
-          >
-            {retrying ? 'Retrying…' : 'Retry stem job'}
-          </button>
-        ) : isActiveRunStatus(latestRun?.status ?? '') ? (
-          <button type="button" className="button-primary" onClick={() => onOpenTrack(track)}>
-            View progress
-          </button>
-        ) : exportable ? (
-          <button type="button" className="button-primary" onClick={() => onOpenTrack(track)}>
-            Open mix
-          </button>
-        ) : null}
-
-        {exportable ? (
-          <button type="button" className="button-secondary" onClick={onExport}>
-            Export audio
-          </button>
-        ) : null}
-        {stemmable && stage.key !== 'needs-stems' ? (
-          <button type="button" className="button-secondary" onClick={onCreateStems}>
-            Create another stem set
-          </button>
-        ) : null}
-      </div>
-
-      <dl className="library-inspector-facts">
-        <div>
-          <dt>Stem sets</dt>
-          <dd>{track.run_count || 'None yet'}</dd>
-        </div>
-        <div>
-          <dt>Mix</dt>
-          <dd>{track.has_custom_mix ? 'Saved' : exportable ? 'Default levels' : 'Not ready'}</dd>
-        </div>
-      </dl>
-    </aside>
   )
 }

@@ -66,14 +66,14 @@ function BatchStemOverlayContent({
       className="overlay"
       role="dialog"
       aria-modal="true"
-      aria-label="Create stems"
+      aria-label="Queue stem sets"
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose()
       }}
     >
       <div className="overlay-panel overlay-panel-wide" ref={panelRef} tabIndex={-1}>
         <header className="overlay-head">
-          <h2>Create stems</h2>
+          <h2>Queue stem sets</h2>
           <button ref={closeButtonRef} type="button" className="button-secondary" onClick={onClose}>
             Close
           </button>
@@ -86,7 +86,7 @@ function BatchStemOverlayContent({
             <div className="batch-stems">
               <div className="batch-stems-summary" aria-live="polite">
                 <strong>
-                  {eligibleRows.length} stem job{eligibleRows.length === 1 ? '' : 's'} ready
+                  {eligibleRows.length} song{eligibleRows.length === 1 ? '' : 's'} ready
                 </strong>
                 <span>
                   {rows.length} selected
@@ -101,6 +101,7 @@ function BatchStemOverlayContent({
                 stemOptions={stemOptions}
                 qualityOptions={qualityOptions}
                 disabled={busy || !eligibleRows.length}
+                compact
                 onChange={setSelection}
               />
 
@@ -122,11 +123,11 @@ function BatchStemOverlayContent({
 
               <div className="import-footer">
                 {eligibleRows.length === 0 ? (
-                  <span>None of the selected tracks can create stems right now.</span>
+                  <span>None of the selected songs can queue a stem set right now.</span>
                 ) : (
                   <span>
                     {selection.stems.length
-                      ? `Queue ${stemSelectionLabel(selection.stems, stemOptions)}.`
+                      ? `Create ${stemSelectionLabel(selection.stems, stemOptions)} for the ready songs.`
                       : 'Choose stems to create.'}
                   </span>
                 )}
@@ -141,7 +142,7 @@ function BatchStemOverlayContent({
                       <Spinner /> Queueing
                     </>
                   ) : (
-                    `Queue ${eligibleRows.length} stem job${eligibleRows.length === 1 ? '' : 's'}`
+                    `Queue ${eligibleRows.length} stem set${eligibleRows.length === 1 ? '' : 's'}`
                   )}
                 </button>
               </div>

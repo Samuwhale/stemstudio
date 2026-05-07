@@ -169,6 +169,7 @@ function ExportBuilderContent({
   const normalizedBitrate = normalizeMp3Bitrate(bitrate)
   const bitrateValid = isMp3Bitrate(bitrate)
   const mp3Requested = (includeMix && mixFmt === 'mp3') || (hasSelectedStems && stemFmt === 'mp3')
+  const showBitrateField = mp3Requested && (showArtifactDetails || !bitrateValid)
   const planKey = useMemo(() => {
     return `${selectedTrackIdsKey}|${runIdsKey}|${artifactList.slice().sort().join(',')}|${effectivePackaging}|${normalizedBitrate}`
   }, [selectedTrackIdsKey, runIdsKey, artifactList, effectivePackaging, normalizedBitrate])
@@ -240,7 +241,17 @@ function ExportBuilderContent({
   const skippedCount = plan?.skipped_track_count ?? 0
   const totalBytes = plan?.total_bytes ?? 0
   const exportingOnlyCurrentMix = includeMix && !hasSelectedStems && !includeSource
-  const exportButtonLabel = exportingOnlyCurrentMix ? 'Export audio mix' : 'Export selected audio'
+  const exportButtonLabel = exportingOnlyCurrentMix ? 'Export current mix' : 'Export files'
+  const mixFormatSummary = mixFmt === 'mp3' ? `MP3 ${normalizedBitrate}k` : 'WAV'
+  const stemFormatSummary = stemFmt === 'mp3' ? `MP3 ${normalizedBitrate}k` : 'WAV'
+  const choiceParts = [
+    includeMix ? `mix ${mixFormatSummary}` : null,
+    hasSelectedStems ? `stems ${stemFormatSummary}` : null,
+    includeSource ? 'original song' : null,
+  ].filter(Boolean)
+  const compactChoiceSummary = exportingOnlyCurrentMix
+    ? `Current mix · ${mixFormatSummary}`
+    : `Files · ${choiceParts.join(' · ')}`
 
   const blockingReason = !selectedTrackIds.length
     ? 'Choose at least one track to export.'
@@ -315,8 +326,8 @@ function ExportBuilderContent({
         <IncludeRow
           checked={includeMix}
           onToggle={() => setIncludeMix((value) => !value)}
-          label="Audio mix"
-          hint="One playable file using the saved levels and mutes."
+          label="Current mix"
+          hint="One playable file using the current levels and mutes."
           format={mixFmt}
           onFormatChange={setMixFmt}
         />
@@ -326,8 +337,8 @@ function ExportBuilderContent({
             className="export-disclosure-row"
             onClick={() => setShowArtifactDetails(true)}
           >
-            <strong>Include more files</strong>
-            <span>Export starts with the playable mix. Add separated stems or the original song if needed.</span>
+            <strong>Add stems or source</strong>
+            <span>Add separated stems or the original song when you need files for a DAW.</span>
           </button>
         ) : null}
         {showArtifactDetails ? (
@@ -337,8 +348,8 @@ function ExportBuilderContent({
               className="export-disclosure-row export-disclosure-row-open"
               onClick={useCurrentMixOnly}
             >
-              <strong>Use audio mix only</strong>
-              <span>Keep one playable file using the saved levels and mutes.</span>
+              <strong>Use current mix only</strong>
+              <span>Export one playable file using the current levels and mutes.</span>
             </button>
             {stemsLoading || stemLookupError || !hasStems ? (
               <StemStatusRow
@@ -399,7 +410,7 @@ function ExportBuilderContent({
         ) : null}
       </div>
 
-      {mp3Requested ? (
+      {showBitrateField ? (
         <label className="export-bitrate-field">
           <span>MP3 bitrate</span>
           <input
@@ -469,10 +480,10 @@ function ExportBuilderContent({
               ? 'Estimating size…'
               : planError
                 ? planError
-                : plan
-                  ? `Included: ${exportingOnlyCurrentMix ? 'audio mix' : 'selected audio'} · ${formatSize(totalBytes)}${skippedCount > 0 ? ` · ${skippedCount} skipped` : ''}${plan.delivery ? ` · ${deliverySummary(plan.delivery)}` : ''}`
+                  : plan
+                  ? `${compactChoiceSummary} · ${formatSize(totalBytes)}${skippedCount > 0 ? ` · ${skippedCount} skipped` : ''}${plan.delivery ? ` · ${deliverySummary(plan.delivery)}` : ''}`
                   : exportingOnlyCurrentMix
-                    ? 'Included: audio mix using saved levels and mutes.'
+                    ? `${compactChoiceSummary} · Uses current levels and mutes.`
                     : ''}
         </p>
       )}
@@ -529,16 +540,34 @@ function StemStatusRow({ hint }: { hint: string }) {
 
 function IncludeRow({ checked, disabled, onToggle, label, hint, format, onFormatChange }: IncludeRowProps) {
   return (
-    <div className={`export-pop-row ${checked ? 'is-on' : ''} ${disabled ? 'is-disabled' : ''}`}>
-      <label className="export-pop-row-check">
-        <input type="checkbox" checked={checked} disabled={disabled} onChange={onToggle} />
+    <div
+      className={`export-pop-row ${checked ? 'is-on' : ''} ${disabled ? 'is-disabled' : ''}`}
+      role="checkbox"
+      aria-checked={checked}
+      aria-disabled={disabled || undefined}
+      tabIndex={disabled ? -1 : 0}
+      onClick={() => {
+        if (!disabled) onToggle()
+      }}
+      onKeyDown={(event) => {
+        if (disabled || (event.key !== 'Enter' && event.key !== ' ')) return
+        event.preventDefault()
+        onToggle()
+      }}
+    >
+      <div className="export-pop-row-check">
+        <input type="checkbox" checked={checked} disabled={disabled} readOnly tabIndex={-1} aria-hidden />
         <span className="export-pop-row-copy">
           <strong>{label}</strong>
           <span>{hint}</span>
         </span>
-      </label>
+      </div>
       {format && onFormatChange ? (
-        <div className="import-source-toggle export-pop-row-fmt">
+        <div
+          className="import-source-toggle export-pop-row-fmt"
+          onClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+        >
           <button
             type="button"
             className={`segmented ${format === 'mp3' ? 'segmented-active' : ''}`}
