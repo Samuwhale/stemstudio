@@ -35,12 +35,12 @@ npm run dev:frontend
 Before opening a pull request, run:
 
 ```sh
-npm run lint
 npm run check
-./scripts/run-python.sh -m compileall -q backend
 ```
 
-There is no formal test suite yet. Do not add broad test scaffolding just to satisfy process. Add a narrow test only when it protects behavior that would be hard to verify by inspection.
+`npm run check` runs frontend linting, frontend typecheck, the production build, and a backend compile check.
+
+StemStudio does not include a formal test suite yet. Do not add broad test scaffolding just to satisfy process. Add a narrow test only when it protects behavior that inspection cannot cover well.
 
 ## Pull Requests
 

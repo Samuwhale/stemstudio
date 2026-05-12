@@ -30,11 +30,5 @@ jobs:
       - name: Install Python backend
         run: npm run setup:python
 
-      - name: Lint frontend
-        run: npm run lint
-
-      - name: Typecheck and build frontend
+      - name: Run project checks
         run: npm run check
-
-      - name: Compile backend
-        run: ./scripts/run-python.sh -m compileall -q backend

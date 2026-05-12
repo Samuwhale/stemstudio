@@ -46,12 +46,6 @@ def collect_diagnostics(session: Session, runtime_settings: RuntimeSettings) -> 
             required=False,
             version_provider=yt_dlp_adapter.version,
         ),
-        _build_binary_status(
-            name="whisper",
-            binary=runtime_settings.whisper_binary,
-            required=False,
-            version_provider=lambda: None,
-        ),
     ]
 
     env_info = separator_adapter.env_info()

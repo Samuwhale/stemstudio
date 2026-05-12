@@ -21,9 +21,6 @@ dependencies = [
 processing = [
   "audio-separator[cpu]>=0.35,<1.0",
 ]
-lyrics = [
-  "openai-whisper>=20250625",
-]
 
 [tool.setuptools.packages.find]
 include = ["backend*"]

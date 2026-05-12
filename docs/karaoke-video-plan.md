@@ -241,7 +241,7 @@ Benchmark these candidates:
    - should be measured for singing and separated vocals before product commitment
 
 3. `openai-whisper` baseline
-   - already aligned with the existing optional lyrics dependency direction
+   - useful as a future provider candidate if the karaoke work needs a smaller baseline
    - useful as a minimum baseline and fallback for transcription-only coverage
    - should not be accepted as the default unless line timing passes without word-level forced alignment
 

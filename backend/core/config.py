@@ -28,7 +28,6 @@ class RuntimeSettings(BaseSettings):
     ffprobe_binary: str = "ffprobe"
     separator_binary: str = "audio-separator"
     yt_dlp_binary: str = "yt-dlp"
-    whisper_binary: str = "whisper"
 
     def ensure_directories(self) -> None:
         for directory in (

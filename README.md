@@ -6,6 +6,8 @@ Created by [Samuel Spithorst](https://spithorst.net).
 
 ## Screenshots
 
+Screenshots use demo library data so the repository can show the main flows without exposing personal audio metadata.
+
 First-run library:
 
 ![StemStudio empty library](./docs/screenshots/library.png)
@@ -13,6 +15,10 @@ First-run library:
 Add songs:
 
 ![StemStudio add songs panel](./docs/screenshots/import-review.png)
+
+Shape a mix:
+
+![StemStudio mix workspace](./docs/screenshots/mix-workspace.png)
 
 ## What It Does
 
@@ -33,6 +39,8 @@ You need:
 - npm 10 or newer.
 - Python 3.10 or newer.
 - `ffmpeg` and `ffprobe` for audio inspection, conversion, waveform metrics, and mixing.
+
+StemStudio does not support Windows yet. The setup and run scripts expect a Unix shell.
 
 You may also want:
 
@@ -134,7 +142,7 @@ npm run build
 npm run check
 ```
 
-`npm run check` runs the frontend typecheck and production build. The project does not have a formal test suite yet.
+`npm run check` runs frontend linting, frontend typecheck, the production build, and a backend compile check. The project does not have a formal test suite yet.
 
 ## Project Layout
 
