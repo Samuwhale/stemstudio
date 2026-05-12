@@ -13,6 +13,7 @@ class BinaryStatusResponse(BaseModel):
 
 class DiagnosticsResponse(BaseModel):
     app_ready: bool
+    separation_ready: bool
     acceleration: str
     free_disk_gb: float
     binaries: list[BinaryStatusResponse]

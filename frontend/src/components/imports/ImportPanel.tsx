@@ -32,6 +32,7 @@ type ImportPanelProps = {
   resolvingYoutubeImport: boolean
   resolvingLocalImport: boolean
   confirming: boolean
+  stemCreationReady: boolean
   onClose: () => void
   onResolveYouTube: (url: string) => Promise<ResolveYouTubeImportResponse>
   onResolveLocalImport: (files: File[]) => Promise<ResolveLocalImportResponse>
@@ -273,6 +274,7 @@ function ImportPanelContent({
   resolvingYoutubeImport,
   resolvingLocalImport,
   confirming,
+  stemCreationReady,
   onClose,
   onResolveYouTube,
   onResolveLocalImport,
@@ -563,7 +565,7 @@ function ImportPanelContent({
         <header className="overlay-head">
           <div className="overlay-head-copy">
             <h2>Add songs</h2>
-            <p>Add files or YouTube links, review matches, then choose what happens next.</p>
+            <p>Add files or YouTube links, review matches, then choose the import action.</p>
           </div>
           <button ref={closeButtonRef} type="button" className="button-secondary" onClick={onClose}>
             Close
@@ -623,7 +625,7 @@ function ImportPanelContent({
               value={selection}
               stemOptions={stemOptions}
               qualityOptions={qualityOptions}
-              disabled={confirming}
+              disabled={confirming || !stemCreationReady}
               compact
               onChange={setSelection}
             />
@@ -635,6 +637,8 @@ function ImportPanelContent({
                     ? `${unresolved} duplicate${unresolved === 1 ? '' : 's'} to resolve`
                     : importableCount === 0
                       ? 'No songs will be imported.'
+                    : !stemCreationReady
+                      ? 'Import now, then install audio-separator before creating stems.'
                     : selection.stems.length
                       ? `Import ${importableCount} song${importableCount === 1 ? '' : 's'} and queue ${selectedStemLabel}.`
                       : 'Choose stems to process now, or import only.'}
@@ -643,8 +647,9 @@ function ImportPanelContent({
                 <button
                   type="button"
                   className="button-primary"
-                  disabled={!canConfirm || selection.stems.length === 0}
+                  disabled={!canConfirm || !stemCreationReady || selection.stems.length === 0}
                   onClick={() => discardRejection(() => confirm(true))}
+                  title={!stemCreationReady ? 'Install audio-separator before queueing stem sets.' : undefined}
                 >
                   {confirming ? <><Spinner /> Importing…</> : 'Import and queue stem sets'}
                 </button>

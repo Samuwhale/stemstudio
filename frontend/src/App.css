@@ -1,4 +1,4 @@
-/* Stems — tool UI. Flat, dense, functional. */
+/* StemStudio tool UI. Flat, dense, functional. */
 
 /* -------- Topbar ------------------------------------------------------- */
 
@@ -1136,7 +1136,7 @@ code {
 
 /* -------- Theme transition -------------------------------------------- */
 
-/* Applied briefly during theme toggle — crossfades surface colors smoothly */
+/* Applied briefly during theme toggle to crossfade surface colors. */
 .theme-transitioning,
 .theme-transitioning * {
   transition: background-color 250ms ease, color 250ms ease, border-color 250ms ease, box-shadow 250ms ease !important;

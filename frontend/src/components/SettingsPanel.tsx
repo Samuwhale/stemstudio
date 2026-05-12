@@ -216,6 +216,13 @@ export function SettingsPanel({
 
       {view === 'storage' ? (
         <form className="import-form" onSubmit={handleSubmit}>
+          <section className="storage-panel-block">
+            <div className="subsection-head">Local workspace</div>
+            <p className="field-hint">
+              Songs, stems, exports, and model files stay on this machine. Use the paths below to see where StemStudio stores them.
+            </p>
+          </section>
+
           <section className="storage-panel-block settings-cleanup-block">
             <div className="subsection-head">Reclaim space</div>
             <div className="storage-action-list">

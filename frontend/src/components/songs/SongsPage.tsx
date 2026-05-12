@@ -737,7 +737,7 @@ export function SongsPage({
           <div className="library-empty library-empty-onboard">
             <WaveformIcon />
             <strong>Add your first song</strong>
-            <p>Drop audio files or paste a YouTube URL, create a stem set, adjust the mix, then export.</p>
+            <p>Add audio, create a stem set, adjust the mix, then export.</p>
             <button type="button" className="button-primary" onClick={onAddSongs}>
               Add songs
             </button>

@@ -30,6 +30,7 @@ type MixWorkspaceProps = {
   defaultSelection: RunProcessingConfigInput
   defaultBitrate: string
   creatingRun: boolean
+  stemCreationReady: boolean
   cancellingRunId: string | null
   retryingRunId: string | null
   deletingRunId: string | null
@@ -64,6 +65,7 @@ type StemCreateControlProps = {
   qualityOptions: QualityOption[]
   defaultSelection: RunProcessingConfigInput
   creatingRun: boolean
+  stemCreationReady: boolean
   buttonLabel?: string
   onCreateRun: (processing: RunProcessingConfigInput) => void
 }
@@ -73,6 +75,7 @@ function StemCreateControl({
   qualityOptions,
   defaultSelection,
   creatingRun,
+  stemCreationReady,
   buttonLabel = 'Create first stem set',
   onCreateRun,
 }: StemCreateControlProps) {
@@ -84,15 +87,21 @@ function StemCreateControl({
         value={selection}
         stemOptions={stemOptions}
         qualityOptions={qualityOptions}
-        disabled={creatingRun}
+        disabled={creatingRun || !stemCreationReady}
         compact
         onChange={setSelection}
       />
+      <p className="field-hint">
+        {stemCreationReady
+          ? 'First runs may download a model into the local cache. CPU jobs can take several minutes.'
+          : 'Install audio-separator in setup before creating stems.'}
+      </p>
       <button
         type="button"
         className="button-primary"
-        disabled={creatingRun || selection.stems.length === 0}
+        disabled={creatingRun || !stemCreationReady || selection.stems.length === 0}
         onClick={() => onCreateRun(selection)}
+        title={!stemCreationReady ? 'Install audio-separator before creating stems.' : undefined}
       >
         {creatingRun ? 'Queueing…' : buttonLabel}
       </button>
@@ -180,13 +189,13 @@ function PencilIcon() {
 }
 
 function StemCreateIcon() {
-  // Five bars representing isolated stem tracks — vocals, drums, bass, piano, other
+  // Five bars representing isolated stem tracks: vocals, drums, bass, piano, other.
   const bars = [
-    { y: 8,  h: 20 }, // vocals — medium
-    { y: 2,  h: 32 }, // drums — tall
-    { y: 12, h: 12 }, // bass — short
-    { y: 0,  h: 36 }, // main — full height
-    { y: 6,  h: 24 }, // other — medium-tall
+    { y: 8,  h: 20 }, // vocals, medium
+    { y: 2,  h: 32 }, // drums, tall
+    { y: 12, h: 12 }, // bass, short
+    { y: 0,  h: 36 }, // main, full height
+    { y: 6,  h: 24 }, // other, medium-tall
   ]
   return (
     <svg width="56" height="36" viewBox="0 0 56 36" fill="none" aria-hidden className="mix-blocked-icon">
@@ -250,6 +259,7 @@ type StemSetsPopoverProps = {
   qualityOptions: QualityOption[]
   defaultSelection: RunProcessingConfigInput
   creatingRun: boolean
+  stemCreationReady: boolean
   cancellingRunId: string | null
   retryingRunId: string | null
   deletingRunId: string | null
@@ -270,6 +280,7 @@ function StemSetsPopover({
   qualityOptions,
   defaultSelection,
   creatingRun,
+  stemCreationReady,
   cancellingRunId,
   retryingRunId,
   deletingRunId,
@@ -329,15 +340,21 @@ function StemSetsPopover({
             value={selection}
             stemOptions={stemOptions}
             qualityOptions={qualityOptions}
-            disabled={creatingRun}
+            disabled={creatingRun || !stemCreationReady}
             compact
             onChange={setSelection}
           />
+          <p className="field-hint">
+            {stemCreationReady
+              ? 'First runs may download a model into the local cache. CPU jobs can take several minutes.'
+              : 'Install audio-separator in setup before creating stems.'}
+          </p>
           <button
             type="button"
             className="button-primary"
-            disabled={creatingRun || selection.stems.length === 0}
+            disabled={creatingRun || !stemCreationReady || selection.stems.length === 0}
             onClick={() => discardRejection(generate)}
+            title={!stemCreationReady ? 'Install audio-separator before creating stems.' : undefined}
           >
             {creatingRun ? 'Queueing…' : 'Create another stem set'}
           </button>
@@ -497,6 +514,7 @@ function MixWorkspaceContent({
   defaultSelection,
   defaultBitrate,
   creatingRun,
+  stemCreationReady,
   cancellingRunId,
   retryingRunId,
   deletingRunId,
@@ -726,7 +744,7 @@ function MixWorkspaceContent({
                 disabled={updatingTrack}
                 onClick={startEditTitle}
                 title="Click to rename"
-                aria-label={`Rename — ${track.title}`}
+                aria-label={`Rename: ${track.title}`}
               >
                 <strong>{track.title}</strong>
                 <span className="mix-top-title-sub">
@@ -760,7 +778,7 @@ function MixWorkspaceContent({
                     ? 'Fix the mix save error before exporting.'
                     : canExport
                       ? 'Export the current mix or separated stems (e)'
-                      : 'Export unlocks after the selected stem set is ready.'
+                      : 'Export is available after the selected stem set is ready.'
               }
             >
               {mixSavePending ? 'Saving mix…' : 'Export current mix'}
@@ -784,7 +802,7 @@ function MixWorkspaceContent({
                 onClick={() => setPopover(popover === 'stemSets' ? null : 'stemSets')}
                 aria-haspopup="dialog"
                 aria-expanded={popover === 'stemSets'}
-                title={selectedRunIsKeeper ? 'Preferred stem set — click to manage (v)' : 'Stem sets — create, switch, or manage (v)'}
+                title={selectedRunIsKeeper ? 'Preferred stem set. Click to manage (v)' : 'Stem sets. Create, switch, or manage (v)'}
               >
                 {activeStemSet ? <span className="mix-version-dot" data-state="active" aria-hidden /> : null}
                 {!activeStemSet && selectedRunIsKeeper ? (
@@ -810,6 +828,7 @@ function MixWorkspaceContent({
                   qualityOptions={qualityOptions}
                   defaultSelection={defaultSelection}
                   creatingRun={creatingRun}
+                  stemCreationReady={stemCreationReady}
                   cancellingRunId={cancellingRunId}
                   retryingRunId={retryingRunId}
                   deletingRunId={deletingRunId}
@@ -933,6 +952,7 @@ function MixWorkspaceContent({
                   qualityOptions={qualityOptions}
                   defaultSelection={defaultSelection}
                   creatingRun={creatingRun}
+                  stemCreationReady={stemCreationReady}
                   buttonLabel="Create another stem set"
                   onCreateRun={createRunAndSelect}
                 />
@@ -946,6 +966,7 @@ function MixWorkspaceContent({
                   qualityOptions={qualityOptions}
                   defaultSelection={defaultSelection}
                   creatingRun={creatingRun}
+                  stemCreationReady={stemCreationReady}
                   buttonLabel="Create another stem set"
                   onCreateRun={createRunAndSelect}
                 />
@@ -960,6 +981,7 @@ function MixWorkspaceContent({
                 qualityOptions={qualityOptions}
                 defaultSelection={defaultSelection}
                 creatingRun={creatingRun}
+                stemCreationReady={stemCreationReady}
                 onCreateRun={createRunAndSelect}
               />
             </>

@@ -290,7 +290,7 @@ function ExportBuilderContent({
             <ul>
               {result.skipped.map((skip) => (
                 <li key={skip.track_id}>
-                  <strong>{skip.track_title}</strong> — {skip.reason}
+                  <strong>{skip.track_title}</strong>: {skip.reason}
                 </li>
               ))}
             </ul>
@@ -646,7 +646,7 @@ const ManifestRow = memo(function ManifestRow({ track, artifactList, stemOptions
                 className={`export-manifest-artifact ${present ? 'is-present' : 'is-missing'}`}
                 title={match?.missing_reason ?? undefined}
               >
-                <span aria-hidden>{present ? '✓' : '—'}</span>
+                <span aria-hidden>{present ? '✓' : '-'}</span>
                 <span>{artifactLabel(kind, stemOptions)}</span>
                 {present && match?.size_bytes != null ? (
                   <span className="export-manifest-size">{formatSize(match.size_bytes)}</span>

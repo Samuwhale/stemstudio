@@ -154,7 +154,8 @@ function App() {
   )
   const defaultBitrate = settings?.export_mp3_bitrate ?? '320k'
   const hasFirstSync = connection.lastSyncAt > 0
-  const setupRequired = hasFirstSync && diagnostics ? !diagnostics.app_ready : false
+  const setupRequired = hasFirstSync && diagnostics ? !diagnostics.app_ready || !diagnostics.separation_ready : false
+  const stemCreationReady = diagnostics?.separation_ready ?? true
 
   function openSettings(view: 'preferences' | 'maintenance' | 'storage') {
     setSettingsView(view)
@@ -354,7 +355,7 @@ function App() {
               onClick={() => openSongs({ ...songsView, search: '', filter: 'all' })}
               aria-label="Go to library"
             >
-              Stems
+              StemStudio
             </button>
             <div className="app-top-actions">
               {setupRequired ? (
@@ -464,6 +465,7 @@ function App() {
                   defaultSelection={defaultProcessing}
                   defaultBitrate={defaultBitrate}
                   creatingRun={creatingRun}
+                  stemCreationReady={stemCreationReady}
                   cancellingRunId={cancellingRunId}
                   retryingRunId={retryingRunId}
                   deletingRunId={deletingRunId}
@@ -531,6 +533,7 @@ function App() {
           resolvingYoutubeImport={resolvingYoutubeImport}
           resolvingLocalImport={resolvingLocalImport}
           confirming={confirmingDrafts}
+          stemCreationReady={stemCreationReady}
           onClose={() => setImportPanelOpen(false)}
           onResolveYouTube={handleResolveYouTube}
           onResolveLocalImport={handleResolveLocalImport}
@@ -565,6 +568,7 @@ function App() {
           qualityOptions={settings?.quality_options ?? []}
           defaultSelection={defaultProcessing}
           busy={creatingRun}
+          stemCreationReady={stemCreationReady}
           onClose={() => setBatchStemIds(null)}
           onConfirm={async (ids, processing) => {
             await handleBatchCreateRun(ids, processing)

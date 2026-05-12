@@ -22,6 +22,7 @@ type BatchStemOverlayProps = {
   qualityOptions: QualityOption[]
   defaultSelection: RunProcessingConfigInput
   busy: boolean
+  stemCreationReady: boolean
   onClose: () => void
   onConfirm: (trackIds: string[], processing: RunProcessingConfigInput) => Promise<void>
 }
@@ -38,6 +39,7 @@ function BatchStemOverlayContent({
   qualityOptions,
   defaultSelection,
   busy,
+  stemCreationReady,
   onClose,
   onConfirm,
 }: BatchStemOverlayProps) {
@@ -100,10 +102,16 @@ function BatchStemOverlayContent({
                 value={selection}
                 stemOptions={stemOptions}
                 qualityOptions={qualityOptions}
-                disabled={busy || !eligibleRows.length}
+                disabled={busy || !eligibleRows.length || !stemCreationReady}
                 compact
                 onChange={setSelection}
               />
+
+              {!stemCreationReady ? (
+                <p className="batch-stems-reason">Install audio-separator in setup before queueing stem sets.</p>
+              ) : (
+                <p className="batch-stems-reason">The first run may download a model into the local cache. CPU jobs can take several minutes.</p>
+              )}
 
               {skippedRows.length > 0 ? (
                 <details className="batch-stems-skipped">
@@ -122,7 +130,9 @@ function BatchStemOverlayContent({
               ) : null}
 
               <div className="import-footer">
-                {eligibleRows.length === 0 ? (
+                {!stemCreationReady ? (
+                  <span>Stem creation needs audio-separator.</span>
+                ) : eligibleRows.length === 0 ? (
                   <span>None of the selected songs can queue a stem set right now.</span>
                 ) : (
                   <span>
@@ -134,8 +144,9 @@ function BatchStemOverlayContent({
                 <button
                   type="button"
                   className="button-primary"
-                  disabled={busy || eligibleRows.length === 0 || selection.stems.length === 0}
+                  disabled={busy || !stemCreationReady || eligibleRows.length === 0 || selection.stems.length === 0}
                   onClick={() => discardRejection(handleConfirm)}
+                  title={!stemCreationReady ? 'Install audio-separator before queueing stem sets.' : undefined}
                 >
                   {busy ? (
                     <>

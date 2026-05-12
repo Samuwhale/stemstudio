@@ -70,16 +70,19 @@ function SettingsDrawerContent({
   useDialogFocus(open, { containerRef: panelRef, initialFocusRef: closeButtonRef })
   const [view, setView] = useState<'preferences' | 'maintenance' | 'storage'>(initialView)
   const readinessBlocked = (diagnostics?.issues.length ?? 0) > 0
+  const separationBlocked = diagnostics ? !diagnostics.separation_ready : false
 
   const drawerTitle =
-    view === 'maintenance' && readinessBlocked ? 'Finish setup' : 'Settings'
+    view === 'maintenance' && (readinessBlocked || separationBlocked) ? 'Finish setup' : 'Settings'
   const drawerDescription =
     view === 'preferences'
       ? 'Set the defaults used when you create stems or export.'
       : view === 'maintenance'
         ? readinessBlocked
           ? 'Processing is blocked. Fix the setup issue first, then return to the workspace.'
-          : 'Check readiness, then repair anything blocking the workspace.'
+          : separationBlocked
+            ? 'The library is ready. Install audio-separator before creating stems.'
+            : 'Check readiness, then repair anything blocking the workspace.'
         : 'Reclaim disk space, review workspace usage, and tune paths when the layout needs to change.'
 
   return (

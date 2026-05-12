@@ -110,7 +110,7 @@ class ApiError extends Error {
 
   constructor(response: Response, detail: string | null) {
     const status = `${response.status} ${response.statusText}`.trim()
-    super(detail ? `${status} — ${detail}` : `Request failed (${status}).`)
+    super(detail ? `${status}: ${detail}` : `Request failed (${status}).`)
     this.name = 'ApiError'
     this.status = response.status
     this.statusText = response.statusText

@@ -23,7 +23,7 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 
-  /* Surfaces — flat studio utility neutrals. */
+  /* Surfaces: flat studio utility neutrals. */
   --bg:             #f7faf8;
   --surface:        #ffffff;
   --surface-2:      #f1f4f2;
@@ -42,7 +42,7 @@
   --text-muted:     #5f6f6a;
   --text-faint:     #889691;
 
-  /* Accent — reserved for primary actions and active signal. */
+  /* Accent: reserved for primary actions and active signal. */
   --accent:         #00695c;
   --accent-press:   #004f45;
   --accent-dim:     color-mix(in oklch, var(--accent) 14%, transparent);
@@ -54,7 +54,7 @@
   --err:            #ba1a1a;
   --info:           #2c6f83;
 
-  /* Spacing — 4pt rhythm. */
+  /* Spacing: 4pt rhythm. */
   --space-2xs: 2px;
   --space-xs:  6px;
   --space-sm:  10px;
@@ -76,7 +76,7 @@
   --line-height-base: 1.5;
   --line-height-mono: 1.6;
 
-  /* Type sizes — fixed rem scale. Use weight + size for hierarchy, never color. */
+  /* Type sizes: fixed rem scale. Use weight and size for hierarchy, never color. */
   --t-micro: 0.6875rem;
   --t-xs:    0.75rem;
   --t-sm:    0.8125rem;

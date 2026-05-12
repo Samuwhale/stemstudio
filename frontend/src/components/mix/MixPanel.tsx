@@ -101,7 +101,7 @@ function GainField({ gainDb, onCommit, label }: GainFieldProps) {
       type="button"
       className={`stem-row-gain ${Math.abs(gainDb) < 0.05 ? 'is-zero' : 'is-set'}`}
       onClick={startEdit}
-      title={`${label} gain — click to type a value, double-click fader to reset`}
+      title={`${label} gain: click to type a value, double-click fader to reset`}
     >
       {formatGain(gainDb)}
     </button>

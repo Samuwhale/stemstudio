@@ -71,6 +71,7 @@ type BinaryStatus = {
 
 export type Diagnostics = {
   app_ready: boolean
+  separation_ready: boolean
   acceleration: string
   free_disk_gb: number
   binaries: BinaryStatus[]

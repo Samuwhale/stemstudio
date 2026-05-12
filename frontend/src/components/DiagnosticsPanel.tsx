@@ -42,9 +42,17 @@ export function DiagnosticsPanel({
   }
 
   const blockingIssue = diagnostics.issues[0] ?? null
+  const separatorAvailable = diagnostics.binaries.find((binary) => binary.name === 'audio-separator')?.available ?? false
   const readinessSummary = diagnostics.issues.length
-    ? 'Resolve the blocking issue first. The rest of the technical details can wait.'
-    : 'System checks look good. Processing should be ready to run.'
+    ? 'Resolve the blocking issue first. The library can run after the core audio tools are available.'
+    : diagnostics.separation_ready
+      ? 'System checks look good. Stem creation should be ready to run.'
+      : 'The library is ready. Install audio-separator when you want to create stems.'
+  const readinessTitle = diagnostics.issues.length
+    ? 'Setup needs attention'
+    : diagnostics.separation_ready
+      ? 'Stem creation is ready'
+      : 'Library is ready'
 
   return (
     <section className="section">
@@ -53,7 +61,7 @@ export function DiagnosticsPanel({
       </div>
 
       <div className="diagnostics-callout">
-        <strong>{diagnostics.issues.length ? 'Processing is blocked' : 'Processing is ready'}</strong>
+        <strong>{readinessTitle}</strong>
         <p>{readinessSummary}</p>
         {blockingIssue ? <span>{blockingIssue}</span> : null}
       </div>
@@ -70,7 +78,7 @@ export function DiagnosticsPanel({
               return (
                 <li key={issue}>
                   {issue}
-                  {remediation ? <span className="diagnostics-hint"> — {remediation}</span> : null}
+                  {remediation ? <span className="diagnostics-hint">: {remediation}</span> : null}
                 </li>
               )
             })}
@@ -88,7 +96,11 @@ export function DiagnosticsPanel({
           <strong>{diagnostics.free_disk_gb} GB</strong>
         </div>
         <div>
-          <span>URL import</span>
+          <span>Stem creation</span>
+          <strong>{separatorAvailable ? 'Ready' : 'Needs audio-separator'}</strong>
+        </div>
+        <div>
+          <span>YouTube import</span>
           <strong>{diagnostics.url_import_ready ? 'Ready' : 'Needs yt-dlp'}</strong>
         </div>
       </div>
@@ -105,8 +117,8 @@ export function DiagnosticsPanel({
             const label = binary.available
               ? 'found'
               : binary.required
-                ? 'missing — required'
-                : 'missing — optional'
+                ? 'missing: required'
+                : 'missing: optional'
             return (
               <article key={binary.name} className="row-line">
                 <div>

@@ -1,0 +1,40 @@
+name: Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Install Python backend
+        run: npm run setup:python
+
+      - name: Lint frontend
+        run: npm run lint
+
+      - name: Typecheck and build frontend
+        run: npm run check
+
+      - name: Compile backend
+        run: ./scripts/run-python.sh -m compileall -q backend

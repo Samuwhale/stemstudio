@@ -1,5 +1,5 @@
 /* =========================================================================
-   Stems — Atelier Minimal layout sheet
+   StemStudio layout sheet
    Tokens live in index.css; App.css holds generic utilities (button, field,
    modal, dropzone, segmented, spinner, toast, progress).
    ======================================================================= */
@@ -1767,7 +1767,7 @@ button.mix-top-title-copy:hover .mix-top-edit-icon {
 
 /* Rows canvas ----------------------------------------------------------- */
 /*  Each stem row fills an equal share of the available height. Waveforms
-    stretch to fill both axes — this is the primary visual. */
+    stretch to fill both axes. This is the primary visual. */
 
 .mix-rows {
   grid-row: 4;
@@ -3344,7 +3344,7 @@ button.stem-row-gain:focus-visible {
   }
 }
 
-/* Staggered entry for each bar — transform-origin at bottom of each rect */
+/* Staggered entry for each bar. Transform origin starts at the bottom of each rect. */
 .mix-blocked-icon-bar {
   transform-origin: center bottom;
   animation: icon-bar-in 320ms ease-out both;

@@ -37,13 +37,13 @@ def collect_diagnostics(session: Session, runtime_settings: RuntimeSettings) -> 
         _build_binary_status(
             name="audio-separator",
             binary=runtime_settings.separator_binary,
-            required=True,
+            required=False,
             version_provider=separator_adapter.version,
         ),
         _build_binary_status(
             name="yt-dlp",
             binary=runtime_settings.yt_dlp_binary,
-            required=True,
+            required=False,
             version_provider=yt_dlp_adapter.version,
         ),
         _build_binary_status(
@@ -65,6 +65,12 @@ def collect_diagnostics(session: Session, runtime_settings: RuntimeSettings) -> 
         elif "cpuexecutionprovider" in lowered:
             acceleration = "cpu"
 
+    required_names = {"ffmpeg", "ffprobe"}
+    available_by_name = {row.name: row.available for row in binary_rows}
+    core_ready = all(available_by_name[name] for name in required_names)
+    separation_ready = core_ready and available_by_name["audio-separator"]
+    url_import_ready = core_ready and available_by_name["yt-dlp"]
+
     issues = [
         f"Required binary missing: {row.name}"
         for row in binary_rows
@@ -77,7 +83,8 @@ def collect_diagnostics(session: Session, runtime_settings: RuntimeSettings) -> 
 
     disk_usage = shutil.disk_usage(storage_paths.outputs_dir)
     return DiagnosticsResponse(
-        app_ready=not any(row.required and not row.available for row in binary_rows),
+        app_ready=core_ready,
+        separation_ready=separation_ready,
         acceleration=acceleration,
         free_disk_gb=round(disk_usage.free / (1024**3), 2),
         binaries=binary_rows,
@@ -89,9 +96,7 @@ def collect_diagnostics(session: Session, runtime_settings: RuntimeSettings) -> 
             "temp": str(storage_paths.temp_dir),
             "model_cache": str(storage_paths.model_cache_dir),
         },
-        url_import_ready=all(
-            row.available for row in binary_rows if row.name in {"ffmpeg", "ffprobe", "audio-separator", "yt-dlp"}
-        ),
+        url_import_ready=url_import_ready,
     )
 
 

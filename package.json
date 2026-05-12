@@ -2,12 +2,23 @@
   "name": "stemstudio",
   "private": true,
   "license": "AGPL-3.0-only",
+  "homepage": "https://spithorst.net",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Samuwhale/stemstudio.git"
+  },
+  "engines": {
+    "node": ">=20",
+    "npm": ">=10"
+  },
   "workspaces": [
     "frontend"
   ],
   "scripts": {
+    "setup": "npm install && npm run check:system && npm run setup:python",
+    "check:system": "./scripts/check-system.sh",
     "setup:python": "./scripts/setup-python.sh",
-    "setup:processing": ".venv/bin/python -m pip install -e '.[processing]'",
+    "setup:processing": "./scripts/setup-processing.sh",
     "dev": "concurrently -n api,worker,frontend -c cyan,green,yellow --restart-tries -1 --restart-after 2000 \"./scripts/run-python.sh -m uvicorn backend.api.main:app --reload --host 127.0.0.1 --port 8000\" \"./scripts/run-python.sh -m backend.workers.runner\" \"npm run dev --workspace frontend -- --host 127.0.0.1 --port 5173\"",
     "dev:api": "./scripts/run-python.sh -m uvicorn backend.api.main:app --reload --host 127.0.0.1 --port 8000",
     "dev:worker": "./scripts/run-python.sh -m backend.workers.runner",
