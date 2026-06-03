@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security guidance
+    url: https://github.com/Samuwhale/stemstudio/blob/main/SECURITY.md
+    about: Read this before reporting issues that involve external binaries, file cleanup, YouTube import, or private media.

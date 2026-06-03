@@ -1,0 +1,43 @@
+{
+  "name": "stemstudio",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Local-first macOS app for stem separation, mix shaping, and exports.",
+  "license": "AGPL-3.0-only",
+  "homepage": "https://spithorst.net",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Samuwhale/stemstudio.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Samuwhale/stemstudio/issues"
+  },
+  "engines": {
+    "node": ">=20",
+    "npm": ">=10"
+  },
+  "workspaces": [
+    "frontend",
+    "desktop"
+  ],
+  "overrides": {
+    "tmp": "0.2.7"
+  },
+  "scripts": {
+    "setup:local": "./scripts/setup-local.sh",
+    "setup:python": "./scripts/setup-python.sh",
+    "desktop:runtime": "./scripts/build-desktop-runtime.sh",
+    "desktop:doctor": "./scripts/desktop-doctor.sh",
+    "desktop:verify:mac": "./scripts/verify-desktop-mac.sh",
+    "desktop:run": "npm run start --workspace desktop",
+    "desktop:build:mac": "./scripts/build-desktop-mac.sh",
+    "build": "npm run build --workspace frontend",
+    "check": "npm run lint && npm run check:frontend && npm run check:backend",
+    "check:frontend": "npm run typecheck && npm run build",
+    "check:backend": "./scripts/run-python.sh -m compileall -q backend",
+    "lint": "npm run lint:frontend",
+    "lint:frontend": "npm run lint --workspace frontend",
+    "typecheck": "npm run typecheck:frontend",
+    "typecheck:frontend": "npm run typecheck --workspace frontend"
+  }
+}

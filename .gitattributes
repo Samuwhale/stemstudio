@@ -1,0 +1,14 @@
+* text=auto eol=lf
+
+*.otf binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webm binary
+*.wav binary
+*.mp3 binary
+*.flac binary
+*.sqlite binary
+*.sqlite3 binary
+*.db binary
